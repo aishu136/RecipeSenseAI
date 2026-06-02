@@ -2,7 +2,9 @@ package org.recipe.service;
 
 import java.time.Duration;
 
+import org.recipe.kafka.RecipeEventProducer;
 import org.recipe.model.RecipeRequest;
+import org.recipe.model.RecipeSearchEvent;
 
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
@@ -25,6 +27,8 @@ public class RecipeResource {
 
     @Inject
     RecipeKafkaConsumer consumer;
+    @Inject
+    RecipeEventProducer eventProducer;
 
 //    @POST
 //    @Path("/generate")
@@ -41,16 +45,48 @@ public class RecipeResource {
 //
 //        return consumer.getLastResponse();
 //    }
+//    @POST
+//    @Path("/generate")
+//    public Uni<String> generate(RecipeRequest request) {
+//
+//        String recipe = aiService.generateRecipe(request);
+//
+//        producer.send(recipe);
+//
+//        return Uni.createFrom()
+//            .item(() -> consumer.getLastResponse())
+//            .onItem().delayIt().by(Duration.ofSeconds(2));
+//    }
+    
     @POST
     @Path("/generate")
     public Uni<String> generate(RecipeRequest request) {
 
-        String recipe = aiService.generateRecipe(request);
+        RecipeSearchEvent event =
+                new RecipeSearchEvent();
+
+        event.setUserId(
+                request.getUserId());
+
+        event.setQuery(
+                String.join(", ",
+                        request.getIngredients()));
+
+        event.setTimestamp(
+                System.currentTimeMillis());
+
+        eventProducer.send(event);
+
+        String recipe =
+                aiService.generateRecipe(request);
 
         producer.send(recipe);
 
         return Uni.createFrom()
-            .item(() -> consumer.getLastResponse())
-            .onItem().delayIt().by(Duration.ofSeconds(2));
+                .item(() ->
+                        consumer.getLastResponse())
+                .onItem()
+                .delayIt()
+                .by(Duration.ofSeconds(2));
     }
 }

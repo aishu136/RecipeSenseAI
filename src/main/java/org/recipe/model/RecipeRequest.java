@@ -9,6 +9,7 @@ public class RecipeRequest {
     public String diet;
     public List<String> ingredients;
     public int servings;
+    public String userId;
 
     public String getDiet() {
         return diet;
@@ -21,4 +22,10 @@ public class RecipeRequest {
     public int getServings() {
         return servings;
     }
+
+	public String getUserId() {
+		return userId;
+	}
+
+	
 }
