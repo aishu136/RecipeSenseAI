@@ -1,12 +1,14 @@
 package org.recipe.service;
 
 import java.time.Duration;
+import java.util.UUID;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.recipe.kafka.RecipeEventProducer;
+import org.recipe.model.ProcessedRecipe;
 import org.recipe.model.RecipeRequest;
 import org.recipe.model.RecipeSearchEvent;
 
-import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
@@ -27,40 +29,20 @@ public class RecipeResource {
 
     @Inject
     RecipeKafkaConsumer consumer;
+
     @Inject
     RecipeEventProducer eventProducer;
 
-//    @POST
-//    @Path("/generate")
-//    public String generate(RecipeRequest request) throws Exception {
-//
-//        // Step 1: Generate recipe using OpenAI
-//        String recipe = aiService.generateRecipe(request);
-//
-//        // Step 2: Send to MSK for Flink processing
-//        producer.send(recipe);
-//
-//        // Step 3: Simple wait (for demo)
-//        Thread.sleep(2000);
-//
-//        return consumer.getLastResponse();
-//    }
-//    @POST
-//    @Path("/generate")
-//    public Uni<String> generate(RecipeRequest request) {
-//
-//        String recipe = aiService.generateRecipe(request);
-//
-//        producer.send(recipe);
-//
-//        return Uni.createFrom()
-//            .item(() -> consumer.getLastResponse())
-//            .onItem().delayIt().by(Duration.ofSeconds(2));
-//    }
-    
+    @ConfigProperty(name = "recipe.flink.timeout", defaultValue = "5s")
+    Duration flinkTimeout;
+
+    // Returns a non-reactive type, so Quarkus runs it on a worker thread and the
+    // blocking LLM and Kafka waits below don't stall the event loop.
     @POST
     @Path("/generate")
-    public Uni<String> generate(RecipeRequest request) {
+    public ProcessedRecipe generate(RecipeRequest request) {
+
+        request.validate();
 
         RecipeSearchEvent event =
                 new RecipeSearchEvent();
@@ -80,13 +62,12 @@ public class RecipeResource {
         String recipe =
                 aiService.generateRecipe(request);
 
-        producer.send(recipe);
+        // Flink scores the recipe; fall back to the unscored recipe if it doesn't answer in time.
+        String requestId = UUID.randomUUID().toString();
+        consumer.expect(requestId);
+        producer.send(requestId, recipe);
 
-        return Uni.createFrom()
-                .item(() ->
-                        consumer.getLastResponse())
-                .onItem()
-                .delayIt()
-                .by(Duration.ofSeconds(2));
+        return consumer.await(requestId, flinkTimeout)
+                .orElse(ProcessedRecipe.unprocessed(requestId, recipe));
     }
 }

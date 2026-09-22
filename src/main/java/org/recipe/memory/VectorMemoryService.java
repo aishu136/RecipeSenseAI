@@ -1,7 +1,12 @@
 package org.recipe.memory;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import org.opensearch.client.RestClient;
 import org.opensearch.client.RestHighLevelClient;
@@ -25,17 +30,39 @@ import org.opensearch.script.ScriptType;
 
 import org.opensearch.index.query.QueryBuilder;
 
+import dev.langchain4j.model.embedding.EmbeddingModel;
+
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Semantic memory stored in OpenSearch (requires the k-NN plugin, which the
+ * standard OpenSearch distribution includes).
+ */
 @ApplicationScoped
 public class VectorMemoryService {
 
+    private static final Logger LOG = Logger.getLogger(VectorMemoryService.class);
+
     private static final String INDEX = "recipe-memory";
-    private static final int VECTOR_DIM = 384;
+
+    @Inject
+    EmbeddingModel embeddingModel;
+
+    @ConfigProperty(name = "opensearch.host", defaultValue = "localhost")
+    String host;
+
+    @ConfigProperty(name = "opensearch.port", defaultValue = "9200")
+    int port;
+
+    @ConfigProperty(name = "opensearch.scheme", defaultValue = "http")
+    String scheme;
 
     private RestHighLevelClient client;
+
+    private volatile boolean indexReady;
 
     // =========================
     // 🚀 INIT
@@ -44,20 +71,25 @@ public class VectorMemoryService {
     void init() {
         client = new RestHighLevelClient(
                 RestClient.builder(
-                        new HttpHost("localhost", 9200, "http")
+                        new HttpHost(host, port, scheme)
                 )
         );
-
-        createIndexIfNotExists();
     }
-  
+
+    @PreDestroy
+    void close() throws IOException {
+        client.close();
+    }
+
     // =========================
     // 🔥 SAVE
     // =========================
     public void save(String text) {
 
         try {
-            float[] embedding = generateEmbedding(text);
+            List<Float> embedding = generateEmbedding(text);
+
+            createIndexIfNotExists(embedding.size());
 
             Map<String, Object> json = Map.of(
                     "text", text,
@@ -71,7 +103,7 @@ public class VectorMemoryService {
             client.index(request, RequestOptions.DEFAULT);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warnf("Could not save memory to OpenSearch: %s", e.getMessage());
         }
     }
 
@@ -81,32 +113,31 @@ public class VectorMemoryService {
     public String search(String queryText) {
 
         try {
-            float[] embedding = generateEmbedding(queryText);
+            List<Float> embedding = generateEmbedding(queryText);
 
+            // OpenSearch k-NN exact search via the knn_score script
             Map<String, Object> params = Map.of(
-                    "query_vector", embedding
+                    "field", "vector",
+                    "query_value", embedding,
+                    "space_type", "cosinesimil"
             );
 
-            // ✅ Create Script
             Script script = new Script(
                     ScriptType.INLINE,
                     "knn",
-                    "cosineSimilarity(params.query_vector, 'vector') + 1.0",
+                    "knn_score",
                     params
             );
 
-            // ✅ Create Query
             QueryBuilder query = QueryBuilders.scriptScoreQuery(
                     QueryBuilders.matchAllQuery(),
                     script
             );
 
-            // ✅ Create Source Builder (YOU MISSED THIS)
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder()
                     .query(query)
                     .size(1);
 
-            // ✅ Create Request
             SearchRequest request = new SearchRequest(INDEX);
             request.source(sourceBuilder);
 
@@ -121,7 +152,7 @@ public class VectorMemoryService {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            LOG.warnf("OpenSearch memory search failed: %s", e.getMessage());
         }
 
         return "";
@@ -130,52 +161,48 @@ public class VectorMemoryService {
     // =========================
     // 🔥 CREATE INDEX
     // =========================
-    private void createIndexIfNotExists() {
+    // Created on first save, because the vector dimension depends on the embedding model.
+    private synchronized void createIndexIfNotExists(int dimension) throws IOException {
 
-        try {
-            GetIndexRequest request = new GetIndexRequest(INDEX);
+        if (indexReady) {
+            return;
+        }
 
-            boolean exists = client.indices()
-                    .exists(request, RequestOptions.DEFAULT);
+        boolean exists = client.indices()
+                .exists(new GetIndexRequest(INDEX), RequestOptions.DEFAULT);
 
-            if (!exists) {
+        if (!exists) {
 
-                String mapping = """
-                    {
-                      "mappings": {
-                        "properties": {
-                          "text": { "type": "text" },
-                          "vector": {
-                            "type": "dense_vector",
-                            "dims": 384
-                          }
-                        }
+            String body = """
+                {
+                  "settings": {
+                    "index": { "knn": true }
+                  },
+                  "mappings": {
+                    "properties": {
+                      "text": { "type": "text" },
+                      "vector": {
+                        "type": "knn_vector",
+                        "dimension": %d
                       }
                     }
-                    """;
+                  }
+                }
+                """.formatted(dimension);
 
-                CreateIndexRequest create = new CreateIndexRequest(INDEX);
-                create.source(mapping, XContentType.JSON);
+            CreateIndexRequest create = new CreateIndexRequest(INDEX);
+            create.source(body, XContentType.JSON);
 
-                client.indices().create(create, RequestOptions.DEFAULT);
-            }
-
-        } catch (IOException e) {
-            e.printStackTrace();
+            client.indices().create(create, RequestOptions.DEFAULT);
         }
+
+        indexReady = true;
     }
 
     // =========================
-    // 🔥 EMBEDDING (TEMP)
+    // 🔥 EMBEDDING
     // =========================
-    private float[] generateEmbedding(String text) {
-
-        float[] vector = new float[VECTOR_DIM];
-
-        for (int i = 0; i < VECTOR_DIM; i++) {
-            vector[i] = (text.hashCode() % (i + 1)) * 0.001f;
-        }
-
-        return vector;
+    private List<Float> generateEmbedding(String text) {
+        return embeddingModel.embed(text).content().vectorAsList();
     }
 }

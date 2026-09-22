@@ -4,6 +4,7 @@ package org.recipe.camel;
 import org.apache.camel.builder.RouteBuilder;
 import jakarta.enterprise.context.ApplicationScoped;
 
+// Kafka brokers come from camel.component.kafka.brokers in application.properties.
 @ApplicationScoped
 public class RecipeRoute extends RouteBuilder {
 
@@ -18,10 +19,10 @@ public class RecipeRoute extends RouteBuilder {
         // 🔥 API → Kafka
         from("direct:recipe-request")
             .log("📥 Received recipe request: ${body}")
-            .to("kafka:recipe-requests?brokers=localhost:9092");
+            .to("kafka:recipe-requests");
 
         // 🔥 Kafka → API response
-        from("kafka:recipe-responses?brokers=localhost:9092&groupId=camel-group")
+        from("kafka:recipe-responses?groupId=camel-group")
             .log("📤 Received processed response: ${body}")
             .to("seda:response");
 

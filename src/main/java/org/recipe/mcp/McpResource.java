@@ -13,6 +13,9 @@ public class McpResource {
 
     @POST
     public String execute(McpRequest request) {
+        if (request == null || request.tool == null) {
+            throw new BadRequestException("tool is required");
+        }
         return orchestrator.execute(request.tool, request.input);
     }
 }

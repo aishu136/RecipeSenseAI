@@ -3,6 +3,8 @@ package org.recipe.model;
 
 import java.util.List;
 
+import jakarta.ws.rs.BadRequestException;
+
 
 public class RecipeRequest {
 
@@ -27,5 +29,18 @@ public class RecipeRequest {
 		return userId;
 	}
 
-	
+	/**
+	 * @throws BadRequestException (HTTP 400) if a required field is missing or invalid
+	 */
+	public void validate() {
+		if (diet == null || diet.isBlank()) {
+			throw new BadRequestException("diet is required");
+		}
+		if (ingredients == null || ingredients.isEmpty()) {
+			throw new BadRequestException("ingredients cannot be empty");
+		}
+		if (servings <= 0) {
+			throw new BadRequestException("servings must be greater than 0");
+		}
+	}
 }

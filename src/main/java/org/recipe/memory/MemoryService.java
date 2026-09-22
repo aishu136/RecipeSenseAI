@@ -1,11 +1,13 @@
 package org.recipe.memory;
 
 
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.RequestScoped;
 import java.util.ArrayList;
 import java.util.List;
 
-@ApplicationScoped
+// Request-scoped: each autonomous run gets its own memory instead of
+// sharing (and leaking) one list across all users.
+@RequestScoped
 public class MemoryService {
 
     private final List<String> memory = new ArrayList<>();

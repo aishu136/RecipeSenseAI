@@ -13,131 +13,140 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.release>21</maven.compiler.release>
-		<quarkus.version>3.31.4</quarkus.version>
+		<quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+		<quarkus.platform.version>3.31.4</quarkus.platform.version>
+		<opensearch.version>2.11.0</opensearch.version>
+		<compiler-plugin.version>3.14.0</compiler-plugin.version>
+		<surefire-plugin.version>3.5.2</surefire-plugin.version>
 	</properties>
+
+	<!-- The Quarkus platform BOMs pin mutually compatible versions of
+	     Quarkus, LangChain4j, Camel and the AWS SDK. -->
+	<dependencyManagement>
+		<dependencies>
+			<!-- The Quarkus BOM manages opensearch-rest-client at 3.x, which is
+			     incompatible with the 2.x high-level client. Keep them in sync. -->
+			<dependency>
+				<groupId>org.opensearch.client</groupId>
+				<artifactId>opensearch-rest-client</artifactId>
+				<version>${opensearch.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>${quarkus.platform.group-id}</groupId>
+				<artifactId>quarkus-bom</artifactId>
+				<version>${quarkus.platform.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>${quarkus.platform.group-id}</groupId>
+				<artifactId>quarkus-langchain4j-bom</artifactId>
+				<version>${quarkus.platform.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>${quarkus.platform.group-id}</groupId>
+				<artifactId>quarkus-camel-bom</artifactId>
+				<version>${quarkus.platform.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<dependency>
+				<groupId>${quarkus.platform.group-id}</groupId>
+				<artifactId>quarkus-amazon-services-bom</artifactId>
+				<version>${quarkus.platform.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<dependencies>
 
-		<!-- Core -->
+		<!-- Core / REST -->
 		<dependency>
 			<groupId>io.quarkus</groupId>
 			<artifactId>quarkus-arc</artifactId>
-			<version>${quarkus.version}</version>
 		</dependency>
-
 		<dependency>
 			<groupId>io.quarkus</groupId>
 			<artifactId>quarkus-rest</artifactId>
-			<version>${quarkus.version}</version>
 		</dependency>
-
-
 		<dependency>
 			<groupId>io.quarkus</groupId>
-			<artifactId>quarkus-bom</artifactId>
-			<version>${quarkus.version}</version>
-			<type>pom</type>
-			<scope>import</scope>
-		</dependency>
-		<!-- Kafka -->
-		<dependency>
-			<groupId>io.quarkus</groupId>
-			<artifactId>quarkus-smallrye-reactive-messaging-kafka</artifactId>
-			<version>3.15.4</version>
+			<artifactId>quarkus-rest-jackson</artifactId>
 		</dependency>
 
-		<!-- Ollama -->
+		<!-- Kafka (SmallRye Reactive Messaging) -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-messaging-kafka</artifactId>
+		</dependency>
+
+		<!-- LLM providers -->
 		<dependency>
 			<groupId>io.quarkiverse.langchain4j</groupId>
 			<artifactId>quarkus-langchain4j-ollama</artifactId>
-			<version>1.7.4</version>
 		</dependency>
-
-
-		<!-- Source:
-		https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-bedrock -->
 		<dependency>
-			<groupId>dev.langchain4j</groupId>
-			<artifactId>langchain4j-bedrock</artifactId>
-			<version>0.29.1</version>
-			<scope>compile</scope>
+			<groupId>io.quarkiverse.langchain4j</groupId>
+			<artifactId>quarkus-langchain4j-bedrock</artifactId>
 		</dependency>
-		<!-- Source:
-		https://mvnrepository.com/artifact/software.amazon.awssdk/bedrockagentruntime -->
+
+		<!-- Bedrock Knowledge Base (RAG) -->
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>bedrockagentruntime</artifactId>
-			<version>2.42.23</version>
-			<scope>compile</scope>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>url-connection-client</artifactId>
 		</dependency>
 
-		<!-- Source:
-		https://mvnrepository.com/artifact/io.quarkus/quarkus-resteasy-reactive -->
-		<dependency>
-			<groupId>io.quarkus</groupId>
-			<artifactId>quarkus-resteasy-reactive</artifactId>
-			<version>3.14.3</version>
-			<scope>compile</scope>
-		</dependency>
-
-		<!-- Source:
-		https://mvnrepository.com/artifact/org.apache.flink/flink-streaming-java -->
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-streaming-java</artifactId>
-			<version>2.0.1</version>
-			<scope>provided</scope>
-		</dependency>
-
-		<!-- Source:
-		https://mvnrepository.com/artifact/org.apache.flink/flink-connector-kafka -->
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-connector-kafka</artifactId>
-			<version>4.0.1-2.0</version>
-			<scope>compile</scope>
-		</dependency>
-		<!-- Testing -->
-		<dependency>
-			<groupId>io.quarkus</groupId>
-			<artifactId>quarkus-junit5</artifactId>
-			<version>${quarkus.version}</version>
-			<scope>test</scope>
-		</dependency>
-
-		<!-- Source:
-		https://mvnrepository.com/artifact/org.apache.camel.quarkus/camel-quarkus-core -->
+		<!-- Camel -->
 		<dependency>
 			<groupId>org.apache.camel.quarkus</groupId>
 			<artifactId>camel-quarkus-core</artifactId>
-			<version>3.32.0</version>
-			<scope>compile</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.camel.quarkus</groupId>
+			<artifactId>camel-quarkus-direct</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.camel.quarkus</groupId>
+			<artifactId>camel-quarkus-seda</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.camel.quarkus</groupId>
+			<artifactId>camel-quarkus-kafka</artifactId>
 		</dependency>
 
-		<!-- Source:
-		https://mvnrepository.com/artifact/org.opensearch.client/opensearch-rest-high-level-client -->
 		<!-- OpenSearch -->
 		<dependency>
 			<groupId>org.opensearch.client</groupId>
 			<artifactId>opensearch-rest-high-level-client</artifactId>
-			<version>2.11.0</version> <!-- 🔥 USE THIS VERSION -->
+			<version>${opensearch.version}</version>
 		</dependency>
-
-		<!-- Apache HTTP 4 (REQUIRED) -->
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
-			<version>4.5.14</version>
 		</dependency>
 
-		<!-- Source:
-		https://mvnrepository.com/artifact/software.amazon.awssdk/bedrockagentruntime -->
+		<!-- Testing -->
 		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>bedrockagentruntime</artifactId>
-			<version>2.44.14</version>
-			<scope>compile</scope>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-junit5</artifactId>
+			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>io.rest-assured</groupId>
+			<artifactId>rest-assured</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- The Flink jobs live in the separate flink-jobs/ project: they are
+		     submitted to a Flink cluster and must not be bundled into this app. -->
 
 	</dependencies>
 
@@ -145,17 +154,39 @@
 		<plugins>
 
 			<plugin>
-				<groupId>io.quarkus</groupId>
+				<groupId>${quarkus.platform.group-id}</groupId>
 				<artifactId>quarkus-maven-plugin</artifactId>
-				<version>${quarkus.version}</version>
+				<version>${quarkus.platform.version}</version>
 				<extensions>true</extensions>
+				<executions>
+					<execution>
+						<goals>
+							<goal>build</goal>
+							<goal>generate-code</goal>
+							<goal>generate-code-tests</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 
 			<plugin>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.8.1</version>
+				<version>${compiler-plugin.version}</version>
 				<configuration>
 					<release>21</release>
+					<!-- Needed so {{diet}}, {{ingredients}}... in AI service
+					     prompt templates resolve to method parameter names. -->
+					<parameters>true</parameters>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>${surefire-plugin.version}</version>
+				<configuration>
+					<systemPropertyVariables>
+						<java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 

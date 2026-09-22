@@ -2,6 +2,8 @@ package org.recipe.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import dev.langchain4j.agent.tool.Tool;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.*;
@@ -30,6 +32,7 @@ public class RecipeTools {
     /**
      * ✅ Calculate calories from recipe JSON
      */
+    @Tool("Calculate total calories for a recipe. Input is the recipe as JSON with an \"ingredients\" array.")
     public String calculateCalories(String recipeJson) {
         try {
             JsonNode root = mapper.readTree(recipeJson);
@@ -74,6 +77,7 @@ public class RecipeTools {
     /**
      * ✅ Enrich recipe (RAG-ready structure)
      */
+    @Tool("Enrich a recipe with difficulty, prep time, cuisine and health score. Input is the recipe as JSON.")
     public String enrichRecipe(String recipeJson) {
         try {
             JsonNode root = mapper.readTree(recipeJson);
@@ -160,6 +164,10 @@ public class RecipeTools {
     }
 
     private String error(String message) {
-        return "{\"error\": \"" + message + "\"}";
+        try {
+            return mapper.writeValueAsString(Map.of("error", String.valueOf(message)));
+        } catch (Exception e) {
+            return "{\"error\": \"unknown\"}";
+        }
     }
 }

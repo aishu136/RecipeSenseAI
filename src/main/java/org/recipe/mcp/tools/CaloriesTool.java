@@ -14,7 +14,7 @@ public class CaloriesTool implements McpTool {
 
     @Override
     public String name() {
-        return "calculateCalories";
+        return "calories";
     }
 
     @Override
