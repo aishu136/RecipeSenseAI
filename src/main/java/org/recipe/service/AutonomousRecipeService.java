@@ -63,9 +63,15 @@ public class AutonomousRecipeService {
             // 🚀 Send to Kafka (Flink processing) and wait for this result's score
             String requestId = UUID.randomUUID().toString();
             responses.expect(requestId);
-            camelService.sendToKafka(requestId, result);
 
-            Optional<ProcessedRecipe> feedback = responses.await(requestId, flinkTimeout);
+            Optional<ProcessedRecipe> feedback;
+            if (camelService.sendToKafka(requestId, result)) {
+                feedback = responses.await(requestId, flinkTimeout);
+            } else {
+                // Not delivered, so no score will come back; don't wait for one
+                responses.cancel(requestId);
+                feedback = Optional.empty();
+            }
 
             if (feedback.isPresent() && feedback.get().needsImprovement()) {
 

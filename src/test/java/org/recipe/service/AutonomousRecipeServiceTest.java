@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -57,6 +58,9 @@ class AutonomousRecipeServiceTest {
         service.responses = responses;
         service.mapper = new ObjectMapper();
         service.flinkTimeout = Duration.ofMillis(10);
+
+        // Kafka delivery succeeds unless a test says otherwise
+        lenient().when(camelService.sendToKafka(anyString(), anyString())).thenReturn(true);
     }
 
     // ---------- parseSteps ----------
@@ -170,5 +174,19 @@ class AutonomousRecipeServiceTest {
         assertEquals("fried chicken", service.runAutonomous("dinner"));
         verify(executor, times(1)).execute(anyString(), anyString());
         verify(executor, never()).execute(eq("Improve this recipe to be healthier"), anyString());
+    }
+
+    @Test
+    void skipsWaitingForFlinkWhenSendFails() {
+        when(planner.createPlan("dinner")).thenReturn("[\"step 1\"]");
+        when(executor.execute("step 1", "")).thenReturn("fried chicken");
+        when(camelService.sendToKafka(anyString(), eq("fried chicken"))).thenReturn(false);
+
+        assertEquals("fried chicken", service.runAutonomous("dinner"));
+
+        ArgumentCaptor<String> expected = ArgumentCaptor.forClass(String.class);
+        verify(responses).expect(expected.capture());
+        verify(responses).cancel(expected.getValue());
+        verify(responses, never()).await(anyString(), any());
     }
 }

@@ -80,6 +80,14 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama in dev mode |
 | `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Vector memory (not used by any endpoint yet) |
 
+Camel send retries (`application.properties`):
+
+| Property | Default | Purpose |
+|---|---|---|
+| `recipe.camel.max-redeliveries` | `3` | Retries for a failed send to Kafka (exponential backoff) |
+| `recipe.camel.redelivery-delay` | `500ms` | Delay before the first retry |
+| `recipe.camel.dead-letter-uri` | `kafka:recipe-requests-dlq` | Where messages go after the last retry, with a `recipe-failure` header giving the reason |
+
 AWS credentials come from the default provider chain (`aws configure`, environment variables, or an IAM role). Never put keys in `application.properties`.
 
 The LLM provider is chosen at build time: `quarkus dev` uses Ollama, a packaged build uses Bedrock.

@@ -149,6 +149,11 @@
 			<artifactId>mockito-junit-jupiter</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.camel</groupId>
+			<artifactId>camel-test-junit6</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<!-- The Flink jobs live in the separate flink-jobs/ project: they are
 		     submitted to a Flink cluster and must not be bundled into this app. -->

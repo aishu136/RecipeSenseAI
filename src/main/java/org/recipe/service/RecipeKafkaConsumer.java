@@ -54,6 +54,11 @@ public class RecipeKafkaConsumer {
         pending.put(requestId, new CompletableFuture<>());
     }
 
+    /** Stops waiting for a request, e.g. when sending it failed. */
+    public void cancel(String requestId) {
+        pending.remove(requestId);
+    }
+
     public Optional<ProcessedRecipe> await(String requestId, Duration timeout) {
         CompletableFuture<ProcessedRecipe> future = pending.get(requestId);
         if (future == null) {
