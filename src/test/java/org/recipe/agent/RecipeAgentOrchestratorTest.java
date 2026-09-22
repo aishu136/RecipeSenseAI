@@ -1,0 +1,33 @@
+package org.recipe.agent;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.recipe.mcp.McpOrchestrator;
+
+@ExtendWith(MockitoExtension.class)
+class RecipeAgentOrchestratorTest {
+
+    @Mock
+    McpOrchestrator mcp;
+
+    @Test
+    void combinesSearchNutritionAndAllergyResults() {
+        RecipeAgentOrchestrator orchestrator = new RecipeAgentOrchestrator();
+        orchestrator.mcp = mcp;
+
+        when(mcp.execute("recipe-search", "vegan rice")).thenReturn("Peanut rice bowl");
+        when(mcp.execute("nutrition", "Peanut rice bowl")).thenReturn("Calories : 400");
+        when(mcp.execute("allergy-check", "Peanut rice bowl")).thenReturn("WARNING : Peanut detected");
+
+        String context = orchestrator.processRecipeRequest("vegan rice");
+
+        assertTrue(context.contains("Peanut rice bowl"));
+        assertTrue(context.contains("Calories : 400"));
+        assertTrue(context.contains("WARNING : Peanut detected"));
+    }
+}
