@@ -87,6 +87,9 @@ Camel send retries (`application.properties`):
 | `recipe.camel.max-redeliveries` | `3` | Retries for a failed send to Kafka (exponential backoff) |
 | `recipe.camel.redelivery-delay` | `500ms` | Delay before the first retry |
 | `recipe.camel.dead-letter-uri` | `kafka:recipe-requests-dlq` | Where messages go after the last retry, with a `recipe-failure` header giving the reason |
+| `recipe.camel.dead-letter-fallback-uri` | `file:dead-letters` (or `$DEAD_LETTER_DIR`) | Used when the dead-letter topic is unreachable too (e.g. Kafka is down): each message is saved as a `.json` file there |
+
+Files in the fallback folder contain the original `{"requestId", "recipe"}` message, so once Kafka is back they can be replayed to `recipe-requests`. On containers, point `DEAD_LETTER_DIR` at a persistent volume.
 
 AWS credentials come from the default provider chain (`aws configure`, environment variables, or an IAM role). Never put keys in `application.properties`.
 

@@ -3,6 +3,7 @@ package org.recipe.camel;
 
 import java.time.Duration;
 
+import org.apache.camel.Exchange;
 import org.apache.camel.ExchangePropertyKey;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.builder.RouteBuilder;
@@ -15,6 +16,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class RecipeRoute extends RouteBuilder {
 
     public static final String SEND_ROUTE = "recipe-to-kafka";
+    public static final String DEAD_LETTER_ROUTE = "dead-letter";
     public static final String RESPONSES_ROUTE = "kafka-responses";
     public static final String RESPONSE_LOG_ROUTE = "response-log";
 
@@ -27,6 +29,10 @@ public class RecipeRoute extends RouteBuilder {
     @ConfigProperty(name = "recipe.camel.dead-letter-uri", defaultValue = "kafka:recipe-requests-dlq")
     String deadLetterUri;
 
+    // Used when the dead-letter topic is unreachable too (e.g. the whole Kafka cluster is down)
+    @ConfigProperty(name = "recipe.camel.dead-letter-fallback-uri", defaultValue = "file:dead-letters")
+    String deadLetterFallbackUri;
+
     @ConfigProperty(name = "recipe.camel.max-redeliveries", defaultValue = "3")
     int maxRedeliveries;
 
@@ -36,9 +42,9 @@ public class RecipeRoute extends RouteBuilder {
     @Override
     public void configure() {
 
-        // 🔥 Error handling: retry with backoff, then park the original message on a
-        // dead-letter topic so it can be inspected or replayed instead of being lost.
-        errorHandler(deadLetterChannel(deadLetterUri)
+        // 🔥 Error handling: retry with backoff, then hand the original message to the
+        // dead-letter route so it can be inspected or replayed instead of being lost.
+        errorHandler(deadLetterChannel("direct:dead-letter")
             .useOriginalMessage()
             .maximumRedeliveries(maxRedeliveries)
             .redeliveryDelay(redeliveryDelay.toMillis())
@@ -57,6 +63,22 @@ public class RecipeRoute extends RouteBuilder {
             .routeId(SEND_ROUTE)
             .log("📥 Received recipe request: ${body}")
             .to("kafka:recipe-requests");
+
+        // ☠️ Dead letters: the dead-letter topic first, a local file if that fails too.
+        // No error handler here, so a failure can't loop back into the dead-letter channel.
+        from("direct:dead-letter")
+            .routeId(DEAD_LETTER_ROUTE)
+            .errorHandler(noErrorHandler())
+            .doTry()
+                .to(deadLetterUri)
+                .log(LoggingLevel.WARN, "☠️ Dead-lettered to " + deadLetterUri + ": ${header." + FAILURE_HEADER + "}")
+            .doCatch(Exception.class)
+                .setHeader(Exchange.FILE_NAME, simple("${date:now:yyyyMMdd-HHmmss-SSS}-${exchangeId}.json"))
+                .to(deadLetterFallbackUri)
+                .log(LoggingLevel.ERROR, "☠️ Dead-letter topic unavailable (${exception.message}); saved to "
+                        + deadLetterFallbackUri + "/${header." + Exchange.FILE_NAME + "}. Original failure: ${header."
+                        + FAILURE_HEADER + "}")
+            .end();
 
         // 🔥 Kafka → API response
         from("kafka:recipe-responses?groupId=camel-group")
