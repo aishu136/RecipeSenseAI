@@ -1,6 +1,7 @@
 package org.recipe.agent;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
@@ -29,5 +30,18 @@ class RecipeAgentOrchestratorTest {
         assertTrue(context.contains("Peanut rice bowl"));
         assertTrue(context.contains("Calories : 400"));
         assertTrue(context.contains("WARNING : Peanut detected"));
+    }
+
+    @Test
+    void toleratesToolsReturningNull() {
+        RecipeAgentOrchestrator orchestrator = new RecipeAgentOrchestrator();
+        orchestrator.mcp = mcp;
+
+        when(mcp.execute(anyString(), anyString())).thenReturn(null);
+
+        String context = orchestrator.processRecipeRequest("vegan rice");
+
+        assertTrue(context.contains("Recipes:"));
+        assertTrue(context.contains("Allergy Check:"));
     }
 }

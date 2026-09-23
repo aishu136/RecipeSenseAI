@@ -83,6 +83,15 @@ START ─► plan ─► execute ─► score ─┬─ Flink flags it ─► im
 
 The graph state (`AutonomousRecipeState`) holds the steps, the current result and a `memory` channel that collects every result, so each request has its own memory.
 
+### MCP context graph
+
+`POST /recipe/generate` gathers context for the LLM prompt from the MCP tools, also as a LangGraph4j graph (`RecipeAgentOrchestrator`). Nutrition and allergy checks both use the search results, so they run as parallel branches:
+
+```
+START ─► search ─┬─► nutrition ─┬─► combine ─► END
+                 └─► allergy ───┘
+```
+
 `recipe-search` uses the Bedrock knowledge base; without AWS credentials it returns nothing (a warning is logged) and generation carries on.
 
 ## Configuration
