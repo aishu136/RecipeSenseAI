@@ -1,8 +1,7 @@
 package org.recipe.api;
 
 
-import java.time.Duration;
-import java.util.Arrays;
+import java.util.Map;
 
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
@@ -12,11 +11,17 @@ import org.recipe.model.RecipeRequest;
 import org.recipe.service.RecipeAgentService;
 
 import io.smallrye.mutiny.Multi;
-import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 
 @Path("/recipe")
 public class RecipeStreamingResource {
+
+    // One event per MCP graph node, sent as the node finishes
+    static final Map<String, String> STEP_EVENTS = Map.of(
+            "search", "🔎 Searched recipes\n",
+            "nutrition", "🥗 Checked nutrition\n",
+            "allergy", "⚠️ Checked allergies\n",
+            "combine", "👨‍🍳 Writing recipe...\n");
 
     @Inject
     RecipeAgentService agentService;
@@ -27,18 +32,22 @@ public class RecipeStreamingResource {
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<String> streamRecipe(RecipeRequest request) {
 
-        // The agent call blocks, so run it on the worker pool rather than the event loop.
-        Multi<String> words = Uni.createFrom()
-                .item(() -> agentService.process(request))
-                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
-                .onItem().transformToMulti(result ->
-                        Multi.createFrom().iterable(Arrays.asList(result.split(" "))))
-                // Simulate streaming (you can replace with real token streaming)
-                .onItem().call(word ->
-                        Uni.createFrom().voidItem().onItem().delayIt().by(Duration.ofMillis(50)))
-                .onItem().transform(word -> word + " ");
+        return Multi.createFrom().<String>emitter(emitter -> {
+                    try {
+                        emitter.emit("🔄 Generating recipe...\n");
 
-        return Multi.createBy().concatenating()
-                .streams(Multi.createFrom().item("🔄 Generating recipe...\n"), words);
+                        String result = agentService.process(request, step ->
+                                emitter.emit(STEP_EVENTS.getOrDefault(step, step + "\n")));
+
+                        for (String word : result.split(" ")) {
+                            emitter.emit(word + " ");
+                        }
+                        emitter.complete();
+                    } catch (Exception e) {
+                        emitter.fail(e);
+                    }
+                })
+                // The graph and agent calls block, so run them on the worker pool rather than the event loop.
+                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 }

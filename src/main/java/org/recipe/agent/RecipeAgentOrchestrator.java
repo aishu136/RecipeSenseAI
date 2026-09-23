@@ -6,10 +6,13 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphStateException;
 import org.bsc.langgraph4j.StateGraph;
+import org.bsc.langgraph4j.action.AsyncNodeAction;
+import org.bsc.langgraph4j.action.NodeAction;
 import org.bsc.langgraph4j.state.AgentState;
 import org.recipe.mcp.McpOrchestrator;
 
@@ -40,22 +43,30 @@ public class RecipeAgentOrchestrator {
     McpOrchestrator mcp;
 
     public String processRecipeRequest(String userPrompt) {
-        return buildGraph()
+        return processRecipeRequest(userPrompt, step -> { });
+    }
+
+    /**
+     * Runs the graph, calling {@code onStep} with each node's name as it
+     * finishes (parallel branches included), and returns the combined context.
+     */
+    public String processRecipeRequest(String userPrompt, Consumer<String> onStep) {
+        return buildGraph(onStep)
                 .invoke(Map.of(PROMPT, userPrompt))
                 .flatMap(state -> state.<String>value(CONTEXT))
                 .orElse("");
     }
 
-    CompiledGraph<AgentState> buildGraph() {
+    CompiledGraph<AgentState> buildGraph(Consumer<String> onStep) {
         try {
             return new StateGraph<>(AgentState::new)
-                    .addNode("search", node_async(state -> Map.of(
+                    .addNode("search", step("search", onStep, state -> Map.of(
                             RECIPES, call("recipe-search", text(state, PROMPT)))))
-                    .addNode("nutrition", node_async(state -> Map.of(
+                    .addNode("nutrition", step("nutrition", onStep, state -> Map.of(
                             NUTRITION, call("nutrition", text(state, RECIPES)))))
-                    .addNode("allergy", node_async(state -> Map.of(
+                    .addNode("allergy", step("allergy", onStep, state -> Map.of(
                             ALLERGY, call("allergy-check", text(state, RECIPES)))))
-                    .addNode("combine", node_async(state -> Map.of(
+                    .addNode("combine", step("combine", onStep, state -> Map.of(
                             CONTEXT, combine(state))))
                     .addEdge(START, "search")
                     .addEdge("search", "nutrition")
@@ -67,6 +78,18 @@ public class RecipeAgentOrchestrator {
         } catch (GraphStateException e) {
             throw new IllegalStateException("Invalid MCP orchestration graph", e);
         }
+    }
+
+    // Reports the node when it finishes. Done inside the action because
+    // LangGraph4j's stream and node hooks only see parallel branches as one
+    // __PARALLEL__ node.
+    private static AsyncNodeAction<AgentState> step(
+            String name, Consumer<String> onStep, NodeAction<AgentState> action) {
+        return node_async(state -> {
+            Map<String, Object> update = action.apply(state);
+            onStep.accept(name);
+            return update;
+        });
     }
 
     // Graph state can't hold nulls; a tool with nothing to say gives ""

@@ -21,20 +21,9 @@ public class RecipeAIService {
         String ingredients =
                 String.join(", ", request.getIngredients());
 
-        String userPrompt =
-                """
-                Diet: %s
-                Ingredients: %s
-                Servings: %d
-                """
-                .formatted(
-                        request.getDiet(),
-                        ingredients,
-                        request.getServings());
-
         String context =
                 orchestrator.processRecipeRequest(
-                        userPrompt);
+                        request.toPrompt());
 
         return recipeAi.generateRecipe(
                 request.getDiet(),

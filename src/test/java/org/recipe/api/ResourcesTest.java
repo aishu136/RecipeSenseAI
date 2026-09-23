@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,10 +49,14 @@ class ResourcesTest {
     }
 
     @Test
-    void streamSendsStatusThenRecipeWordByWord() {
+    void streamSendsGraphStepsThenRecipeWordByWord() {
         RecipeStreamingResource resource = new RecipeStreamingResource();
         resource.agentService = agentService;
-        when(agentService.process(any(RecipeRequest.class))).thenReturn("Rice and beans");
+        when(agentService.process(any(RecipeRequest.class), any())).thenAnswer(call -> {
+            Consumer<String> onStep = call.getArgument(1);
+            List.of("search", "nutrition", "allergy", "combine").forEach(onStep);
+            return "Rice and beans";
+        });
 
         RecipeRequest request = new RecipeRequest();
         request.diet = "vegan";
@@ -62,7 +67,25 @@ class ResourcesTest {
                 .collect().asList()
                 .await().atMost(Duration.ofSeconds(5));
 
-        assertEquals(List.of("🔄 Generating recipe...\n", "Rice ", "and ", "beans "), events);
+        assertEquals(List.of(
+                "🔄 Generating recipe...\n",
+                "🔎 Searched recipes\n",
+                "🥗 Checked nutrition\n",
+                "⚠️ Checked allergies\n",
+                "👨‍🍳 Writing recipe...\n",
+                "Rice ", "and ", "beans "), events);
+    }
+
+    @Test
+    void streamFailsWhenTheAgentFails() {
+        RecipeStreamingResource resource = new RecipeStreamingResource();
+        resource.agentService = agentService;
+        when(agentService.process(any(RecipeRequest.class), any()))
+                .thenThrow(new BadRequestException("diet is required"));
+
+        assertThrows(BadRequestException.class, () -> resource.streamRecipe(new RecipeRequest())
+                .collect().asList()
+                .await().atMost(Duration.ofSeconds(5)));
     }
 
     @Test

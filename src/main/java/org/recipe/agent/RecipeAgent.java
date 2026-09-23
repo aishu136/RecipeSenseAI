@@ -35,9 +35,12 @@ public interface RecipeAgent {
     @UserMessage("""
         Generate a {{diet}} recipe using {{ingredients}} for {{servings}} servings.
 
+        Use this background knowledge where it helps:
+        {{context}}
+
         Ensure:
         - Include ingredients and instructions
         - Use tools for calories and enrichment
         """)
-    String run(String diet, String ingredients, int servings);
+    String run(String diet, String ingredients, int servings, String context);
 }

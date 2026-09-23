@@ -60,7 +60,7 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 | Endpoint | Body | Notes |
 |---|---|---|
 | `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}` |
-| `POST /recipe/stream` | same as above | Server-sent events, uses the tool-calling agent |
+| `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
@@ -85,11 +85,22 @@ The graph state (`AutonomousRecipeState`) holds the steps, the current result an
 
 ### MCP context graph
 
-`POST /recipe/generate` gathers context for the LLM prompt from the MCP tools, also as a LangGraph4j graph (`RecipeAgentOrchestrator`). Nutrition and allergy checks both use the search results, so they run as parallel branches:
+`POST /recipe/generate` and `POST /recipe/stream` gather context for the LLM prompt from the MCP tools, also as a LangGraph4j graph (`RecipeAgentOrchestrator`). Nutrition and allergy checks both use the search results, so they run as parallel branches:
 
 ```
 START ─► search ─┬─► nutrition ─┬─► combine ─► END
                  └─► allergy ───┘
+```
+
+`/recipe/stream` sends an event as each node finishes, then the recipe:
+
+```
+🔄 Generating recipe...
+🔎 Searched recipes
+🥗 Checked nutrition
+⚠️ Checked allergies
+👨‍🍳 Writing recipe...
+{"recipeName": ...
 ```
 
 `recipe-search` uses the Bedrock knowledge base; without AWS credentials it returns nothing (a warning is logged) and generation carries on.

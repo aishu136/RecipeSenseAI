@@ -29,6 +29,16 @@ public class RecipeRequest {
 		return userId;
 	}
 
+	// Prompt describing the request, given to the MCP context graph
+	public String toPrompt() {
+		return """
+				Diet: %s
+				Ingredients: %s
+				Servings: %d
+				"""
+				.formatted(diet, String.join(", ", ingredients), servings);
+	}
+
 	/**
 	 * @throws BadRequestException (HTTP 400) if a required field is missing or invalid
 	 */

@@ -1,8 +1,13 @@
 package org.recipe.agent;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,5 +48,20 @@ class RecipeAgentOrchestratorTest {
 
         assertTrue(context.contains("Recipes:"));
         assertTrue(context.contains("Allergy Check:"));
+    }
+
+    @Test
+    void reportsEveryGraphStepIncludingParallelBranches() {
+        RecipeAgentOrchestrator orchestrator = new RecipeAgentOrchestrator();
+        orchestrator.mcp = mcp;
+        when(mcp.execute(anyString(), anyString())).thenReturn("result");
+
+        List<String> steps = new ArrayList<>();
+        orchestrator.processRecipeRequest("vegan rice", steps::add);
+
+        assertEquals("search", steps.get(0));
+        assertEquals(Set.of("nutrition", "allergy"), Set.copyOf(steps.subList(1, 3)));
+        assertEquals("combine", steps.get(3));
+        assertEquals(4, steps.size());
     }
 }
