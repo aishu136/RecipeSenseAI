@@ -61,9 +61,27 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 |---|---|---|
 | `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}` |
 | `POST /recipe/stream` | same as above | Server-sent events, uses the tool-calling agent |
-| `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents, improves recipes Flink flags |
+| `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
+
+### Autonomous agent graph
+
+`/autonomous` is built with [LangGraph4j](https://github.com/langgraph4j/langgraph4j) (the Java port of LangGraph) in `AutonomousRecipeService`:
+
+```
+START ─► plan ─► execute ─► score ─┬─ Flink flags it ─► improve ─┬─ more steps ─► execute
+                   ▲               ├─ more steps ────────────────┼───────────────┘
+                   └───────────────┘                             └─ done ─► END
+                                   └─ done ─► END
+```
+
+- `plan`: the planner agent turns the goal into a list of steps.
+- `execute`: the executor agent runs the next step, with every earlier result as context.
+- `score`: sends the result to Kafka and waits up to `recipe.flink.timeout` for the Flink score.
+- `improve`: asks the executor for a healthier version when Flink sets `needsImprovement`.
+
+The graph state (`AutonomousRecipeState`) holds the steps, the current result and a `memory` channel that collects every result, so each request has its own memory.
 
 `recipe-search` uses the Bedrock knowledge base; without AWS credentials it returns nothing (a warning is logged) and generation carries on.
 

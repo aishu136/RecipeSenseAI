@@ -18,6 +18,7 @@
 		<opensearch.version>2.11.0</opensearch.version>
 		<compiler-plugin.version>3.14.0</compiler-plugin.version>
 		<surefire-plugin.version>3.5.2</surefire-plugin.version>
+		<langgraph4j.version>1.9.0</langgraph4j.version>
 	</properties>
 
 	<!-- The Quarkus platform BOMs pin mutually compatible versions of
@@ -92,6 +93,13 @@
 		<dependency>
 			<groupId>io.quarkiverse.langchain4j</groupId>
 			<artifactId>quarkus-langchain4j-bedrock</artifactId>
+		</dependency>
+
+		<!-- LangGraph4j: the autonomous planner/executor runs as a state graph -->
+		<dependency>
+			<groupId>org.bsc.langgraph4j</groupId>
+			<artifactId>langgraph4j-core</artifactId>
+			<version>${langgraph4j.version}</version>
 		</dependency>
 
 		<!-- Bedrock Knowledge Base (RAG) -->

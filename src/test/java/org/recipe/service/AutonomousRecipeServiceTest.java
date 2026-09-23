@@ -13,6 +13,8 @@ import static org.mockito.Mockito.when;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +24,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.recipe.agent.ExecutorAgent;
 import org.recipe.agent.PlannerAgent;
-import org.recipe.memory.MemoryService;
 import org.recipe.model.ProcessedRecipe;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,18 +43,13 @@ class AutonomousRecipeServiceTest {
     @Mock
     RecipeKafkaConsumer responses;
 
-    MemoryService memory;
-
     AutonomousRecipeService service;
 
     @BeforeEach
     void setUp() {
-        memory = new MemoryService();
-
         service = new AutonomousRecipeService();
         service.planner = planner;
         service.executor = executor;
-        service.memory = memory;
         service.camelService = camelService;
         service.responses = responses;
         service.mapper = new ObjectMapper();
@@ -111,7 +107,6 @@ class AutonomousRecipeServiceTest {
         String result = service.runAutonomous("dinner");
 
         assertEquals("result 2", result);
-        assertEquals("result 1\nresult 2", memory.getContext());
         verify(camelService).sendToKafka(anyString(), eq("result 1"));
         verify(camelService).sendToKafka(anyString(), eq("result 2"));
     }
@@ -148,7 +143,6 @@ class AutonomousRecipeServiceTest {
         String result = service.runAutonomous("dinner");
 
         assertEquals("grilled chicken", result);
-        assertEquals("fried chicken\ngrilled chicken", memory.getContext());
     }
 
     @Test
@@ -188,5 +182,20 @@ class AutonomousRecipeServiceTest {
         verify(responses).expect(expected.capture());
         verify(responses).cancel(expected.getValue());
         verify(responses, never()).await(anyString(), any());
+    }
+
+    @Test
+    void runsPlansLongerThanLangGraphDefaultRecursionLimit() {
+        // 20 steps, each improved: 61 node visits, well over LangGraph4j's default of 25
+        List<String> steps = IntStream.range(0, 20).mapToObj(i -> "step " + i).toList();
+        when(planner.createPlan("week")).thenReturn(
+                steps.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(",", "[", "]")));
+        when(executor.execute(anyString(), anyString())).thenAnswer(call -> "done " + call.getArgument(0));
+        when(responses.await(anyString(), any())).thenReturn(
+                Optional.of(new ProcessedRecipe("id", "recipe", 10, true)));
+
+        assertEquals("done Improve this recipe to be healthier", service.runAutonomous("week"));
+        verify(executor).execute(eq("step 19"), anyString());
+        verify(executor, times(20)).execute(eq("Improve this recipe to be healthier"), anyString());
     }
 }
