@@ -98,7 +98,7 @@ The graph state (`AutonomousRecipeState`) holds the steps, the current result an
 
 ### MCP context graph
 
-`POST /recipe/generate` and `POST /recipe/stream` gather context for the LLM prompt from the MCP tools, also as a LangGraph4j graph (`RecipeAgentOrchestrator`). Nutrition and allergy checks both use the search results, so they run as parallel branches:
+`POST /recipe/generate` and `POST /recipe/stream` gather context for the LLM prompt from the MCP tools, also as a LangGraph4j graph (`RecipeAgentOrchestrator`). Nutrition and allergy checks both use the search results, so they run concurrently as parallel branches (on Quarkus's managed executor):
 
 ```
 START ─► search ─┬─► nutrition ─┬─► combine ─► END

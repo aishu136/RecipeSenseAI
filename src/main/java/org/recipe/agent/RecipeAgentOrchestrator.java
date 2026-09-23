@@ -10,10 +10,12 @@ import java.util.function.Consumer;
 
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphStateException;
+import org.bsc.langgraph4j.RunnableConfig;
 import org.bsc.langgraph4j.StateGraph;
 import org.bsc.langgraph4j.action.AsyncNodeAction;
 import org.bsc.langgraph4j.action.NodeAction;
 import org.bsc.langgraph4j.state.AgentState;
+import org.eclipse.microprofile.context.ManagedExecutor;
 import org.recipe.mcp.McpOrchestrator;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -28,7 +30,7 @@ import jakarta.inject.Inject;
  * </pre>
  *
  * Nutrition and allergy checks both work from the search results, so they
- * are parallel branches that join in {@code combine}.
+ * run concurrently as parallel branches that join in {@code combine}.
  */
 @ApplicationScoped
 public class RecipeAgentOrchestrator {
@@ -42,17 +44,28 @@ public class RecipeAgentOrchestrator {
     @Inject
     McpOrchestrator mcp;
 
+    // Runs the nutrition and allergy branches concurrently, carrying the
+    // caller's context (CDI request scope etc.) over to the branch threads
+    @Inject
+    ManagedExecutor executor;
+
     public String processRecipeRequest(String userPrompt) {
         return processRecipeRequest(userPrompt, step -> { });
     }
 
     /**
      * Runs the graph, calling {@code onStep} with each node's name as it
-     * finishes (parallel branches included), and returns the combined context.
+     * finishes (parallel branches included, possibly from other threads), and
+     * returns the combined context.
      */
     public String processRecipeRequest(String userPrompt, Consumer<String> onStep) {
+        // Without an executor for "search", LangGraph4j runs its branches one after the other
+        RunnableConfig config = RunnableConfig.builder()
+                .addParallelNodeExecutor("search", executor)
+                .build();
+
         return buildGraph(onStep)
-                .invoke(Map.of(PROMPT, userPrompt))
+                .invoke(Map.of(PROMPT, userPrompt), config)
                 .flatMap(state -> state.<String>value(CONTEXT))
                 .orElse("");
     }
