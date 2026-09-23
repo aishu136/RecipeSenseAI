@@ -3,6 +3,7 @@ package org.recipe.agent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.bsc.langgraph4j.state.AgentState;
 import org.bsc.langgraph4j.state.Channel;
@@ -17,6 +18,7 @@ public class AutonomousRecipeState extends AgentState {
     public static final String STEP_INDEX = "stepIndex";
     public static final String RESULT = "result";
     public static final String NEEDS_IMPROVEMENT = "needsImprovement";
+    public static final String HEALTH_SCORE = "healthScore";
     public static final String MEMORY = "memory";
 
     // Every result the executor produces is appended to MEMORY; the other
@@ -50,6 +52,11 @@ public class AutonomousRecipeState extends AgentState {
 
     public boolean needsImprovement() {
         return this.<Boolean>value(NEEDS_IMPROVEMENT).orElse(false);
+    }
+
+    // Flink's score for the current result; empty if it didn't answer
+    public Optional<Integer> healthScore() {
+        return value(HEALTH_SCORE);
     }
 
     public String context() {

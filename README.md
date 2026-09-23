@@ -62,6 +62,7 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 | `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}` |
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
+| `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
 
@@ -82,6 +83,18 @@ START ─► plan ─► execute ─► score ─┬─ Flink flags it ─► im
 - `improve`: asks the executor for a healthier version when Flink sets `needsImprovement`.
 
 The graph state (`AutonomousRecipeState`) holds the steps, the current result and a `memory` channel that collects every result, so each request has its own memory.
+
+`/autonomous/stream` sends an event as each node finishes, then the final result:
+
+```
+📋 Planned 2 steps
+🍳 Step 1/2: Pick a vegan protein
+📊 Health score 45, improving it
+🥗 Made it healthier
+🍳 Step 2/2: Write the recipe
+📊 No health score from Flink
+{"recipeName": ...
+```
 
 ### MCP context graph
 

@@ -11,7 +11,9 @@ import jakarta.inject.Inject;
 import org.bsc.langgraph4j.CompileConfig;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphStateException;
+import org.bsc.langgraph4j.NodeOutput;
 import org.bsc.langgraph4j.StateGraph;
+import org.bsc.langgraph4j.state.AgentState;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 import org.recipe.agent.AutonomousRecipeState;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 
 /**
  * Runs the planner and executor agents as a LangGraph4j state graph:
@@ -68,10 +71,22 @@ public class AutonomousRecipeService {
     Duration flinkTimeout;
 
     public String runAutonomous(String goal) {
-        return buildGraph()
-                .invoke(Map.of(AutonomousRecipeState.GOAL, goal))
-                .map(AutonomousRecipeState::result)
-                .orElse("");
+        return runAutonomous(goal, (node, state) -> { });
+    }
+
+    /**
+     * Runs the graph, calling {@code onStep} with each node's name and the
+     * state it left behind, and returns the final result.
+     */
+    public String runAutonomous(String goal, BiConsumer<String, AutonomousRecipeState> onStep) {
+        AutonomousRecipeState last = null;
+        for (NodeOutput<AutonomousRecipeState> output : buildGraph().stream(Map.of(AutonomousRecipeState.GOAL, goal))) {
+            if (!output.isSTART() && !output.isEND()) {
+                onStep.accept(output.node(), output.state());
+            }
+            last = output.state();
+        }
+        return last == null ? "" : last.result();
     }
 
     CompiledGraph<AutonomousRecipeState> buildGraph() {
@@ -130,7 +145,13 @@ public class AutonomousRecipeService {
         }
 
         boolean needsImprovement = feedback.map(ProcessedRecipe::needsImprovement).orElse(false);
-        return Map.of(AutonomousRecipeState.NEEDS_IMPROVEMENT, needsImprovement);
+        // Clear the previous step's score when this one has none
+        Object healthScore = feedback.map(ProcessedRecipe::healthScore)
+                .<Object>map(score -> score)
+                .orElse(AgentState.MARK_FOR_REMOVAL);
+        return Map.of(
+                AutonomousRecipeState.NEEDS_IMPROVEMENT, needsImprovement,
+                AutonomousRecipeState.HEALTH_SCORE, healthScore);
     }
 
     Map<String, Object> improve(AutonomousRecipeState state) {

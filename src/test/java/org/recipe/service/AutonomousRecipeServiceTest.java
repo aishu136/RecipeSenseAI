@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -182,6 +183,32 @@ class AutonomousRecipeServiceTest {
         verify(responses).expect(expected.capture());
         verify(responses).cancel(expected.getValue());
         verify(responses, never()).await(anyString(), any());
+    }
+
+    @Test
+    void reportsEachGraphNodeWithTheStateItLeft() {
+        when(planner.createPlan("dinner")).thenReturn("[\"step 1\", \"step 2\"]");
+        when(executor.execute("step 1", "")).thenReturn("fried chicken");
+        when(executor.execute("Improve this recipe to be healthier", "fried chicken"))
+                .thenReturn("grilled chicken");
+        when(executor.execute("step 2", "fried chicken\ngrilled chicken")).thenReturn("salad");
+        when(responses.await(anyString(), any()))
+                .thenReturn(Optional.of(new ProcessedRecipe("id", "fried chicken", 50, true)))
+                .thenReturn(Optional.empty());
+
+        List<String> nodes = new ArrayList<>();
+        List<Optional<Integer>> scores = new ArrayList<>();
+        String result = service.runAutonomous("dinner", (node, state) -> {
+            nodes.add(node);
+            if (node.equals("score")) {
+                scores.add(state.healthScore());
+            }
+        });
+
+        assertEquals("salad", result);
+        assertEquals(List.of("plan", "execute", "score", "improve", "execute", "score"), nodes);
+        // The second step had no score, so the first step's 50 must not linger
+        assertEquals(List.of(Optional.of(50), Optional.empty()), scores);
     }
 
     @Test
