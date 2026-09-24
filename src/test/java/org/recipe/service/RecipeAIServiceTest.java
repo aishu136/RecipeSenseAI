@@ -43,7 +43,7 @@ class RecipeAIServiceTest {
         request.servings = 3;
 
         when(orchestrator.processRecipeRequest(anyString())).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "rice, beans", 3, "tool context")).thenReturn("recipe json");
+        when(recipeAi.generateRecipe("vegan", "any", "rice, beans", 3, "tool context")).thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
 
@@ -52,5 +52,20 @@ class RecipeAIServiceTest {
         assertTrue(prompt.getValue().contains("Diet: vegan"));
         assertTrue(prompt.getValue().contains("Ingredients: rice, beans"));
         assertTrue(prompt.getValue().contains("Servings: 3"));
+        assertTrue(prompt.getValue().contains("Cuisine: any"));
+    }
+
+    @Test
+    void passesTheRequestedCuisineToTheModel() {
+        RecipeRequest request = new RecipeRequest();
+        request.diet = "vegan";
+        request.ingredients = List.of("rice");
+        request.servings = 2;
+        request.cuisine = " Thai ";
+
+        when(orchestrator.processRecipeRequest(anyString())).thenReturn("tool context");
+        when(recipeAi.generateRecipe("vegan", "Thai", "rice", 2, "tool context")).thenReturn("recipe json");
+
+        assertEquals("recipe json", service.generateRecipe(request));
     }
 }

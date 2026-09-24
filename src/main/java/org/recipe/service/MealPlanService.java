@@ -64,19 +64,27 @@ public class MealPlanService {
                 .filter(diet -> !diet.isBlank() && !diet.equalsIgnoreCase("any"))
                 .orElse(null);
         String diet = request.dietFilter() != null ? request.dietFilter() : savedDiet;
+        String savedCuisine = preference
+                .map(UserPreference::favoriteCuisine)
+                .filter(cuisine -> !cuisine.isBlank() && !cuisine.equalsIgnoreCase("any"))
+                .orElse(null);
 
-        // Ingredient filters to try in order, before any recipe for the diet
-        Set<String> ingredientFilters = new LinkedHashSet<>();
+        // Searches to try in order, before any recipe for the diet: the
+        // request's ingredients, then the user's cuisine and favourite ingredients
+        Set<SearchFilter> filters = new LinkedHashSet<>();
         if (request.ingredientFilter() != null) {
-            ingredientFilters.add(request.ingredientFilter());
+            filters.add(new SearchFilter(request.ingredientFilter(), null));
+        }
+        if (savedCuisine != null) {
+            filters.add(new SearchFilter(null, savedCuisine));
         }
         if (!favorites.isEmpty()) {
-            ingredientFilters.add(String.join(",", favorites));
+            filters.add(new SearchFilter(String.join(",", favorites), null));
         }
 
         int days = request.daysOrDefault();
-        List<Recipe> breakfasts = find(key, diet, ingredientFilters, BREAKFAST, days);
-        List<Recipe> mains = find(key, diet, ingredientFilters, MAIN_COURSE, days * 2);
+        List<Recipe> breakfasts = find(key, diet, filters, BREAKFAST, days);
+        List<Recipe> mains = find(key, diet, filters, MAIN_COURSE, days * 2);
 
         // With fewer matching recipes than meals, recipes repeat across days
         List<MealPlan.Day> plan = new ArrayList<>();
@@ -88,25 +96,33 @@ public class MealPlanService {
                     meal(mains.get((2 * i + 1) % mains.size()))));
         }
 
-        MealPlan.Personalisation personalisedWith = favorites.isEmpty() && savedDiet == null
+        MealPlan.Personalisation personalisedWith = favorites.isEmpty() && savedDiet == null && savedCuisine == null
                 ? null
-                : new MealPlan.Personalisation(favorites, savedDiet);
+                : new MealPlan.Personalisation(favorites, savedDiet, savedCuisine);
         return new MealPlan(plan, personalisedWith);
     }
 
-    // Recipes using each ingredient filter come first (the request's, then the
-    // user's favourites), topped up with other recipes for the diet.
-    private List<Recipe> find(String key, String diet, Set<String> ingredientFilters, String type, int count) {
+    // One search on top of the diet: recipes using these ingredients and/or of this cuisine
+    private record SearchFilter(String ingredients, String cuisine) {
+
+        String sort() {
+            return ingredients == null ? "random" : "max-used-ingredients";
+        }
+    }
+
+    // Recipes matching each filter in turn come first, topped up with other
+    // recipes for the diet.
+    private List<Recipe> find(String key, String diet, Set<SearchFilter> filters, String type, int count) {
         Map<Integer, Recipe> found = new LinkedHashMap<>();
 
-        for (String ingredients : ingredientFilters) {
+        for (SearchFilter filter : filters) {
             if (found.size() == count) {
                 break;
             }
-            addAll(found, search(key, diet, ingredients, type, "max-used-ingredients", count), count);
+            addAll(found, search(key, diet, filter.ingredients(), filter.cuisine(), type, filter.sort(), count), count);
         }
         if (found.size() < count) {
-            addAll(found, search(key, diet, null, type, "random", count), count);
+            addAll(found, search(key, diet, null, null, type, "random", count), count);
         }
         if (found.isEmpty()) {
             throw new NotFoundException("No " + type + " recipes found"
@@ -124,10 +140,11 @@ public class MealPlanService {
         }
     }
 
-    private List<Recipe> search(String key, String diet, String ingredients, String type, String sort, int count) {
+    private List<Recipe> search(String key, String diet, String ingredients, String cuisine,
+            String type, String sort, int count) {
         try {
             SpoonacularClient.SearchResponse response =
-                    spoonacular.search(diet, ingredients, type, sort, count, true, key);
+                    spoonacular.search(diet, ingredients, cuisine, type, sort, count, true, key);
             return response == null || response.results() == null ? List.of() : response.results();
         } catch (WebApplicationException | ProcessingException e) {
             // e.g. 401 bad key, 402 daily quota used up, or the API is unreachable

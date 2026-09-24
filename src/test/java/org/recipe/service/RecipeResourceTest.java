@@ -112,6 +112,7 @@ class RecipeResourceTest {
     @Test
     void publishesSearchEvent() {
         RecipeRequest request = request();
+        request.cuisine = "indian";
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
@@ -122,6 +123,7 @@ class RecipeResourceTest {
         assertEquals("u1", event.getValue().getUserId());
         assertEquals("rice, beans", event.getValue().getQuery());
         assertEquals("vegan", event.getValue().getDiet());
+        assertEquals("indian", event.getValue().getCuisine());
     }
 
     @Test

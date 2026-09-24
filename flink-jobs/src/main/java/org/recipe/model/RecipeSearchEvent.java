@@ -10,6 +10,9 @@ public class RecipeSearchEvent {
     // The diet of the recipe request, e.g. "vegetarian"
     private String diet;
 
+    // The cuisine of the recipe request, e.g. "italian"; null when none was given
+    private String cuisine;
+
     private Long timestamp;
 
     public String getUserId() {
@@ -34,6 +37,14 @@ public class RecipeSearchEvent {
 
     public void setDiet(String diet) {
         this.diet = diet;
+    }
+
+    public String getCuisine() {
+        return cuisine;
+    }
+
+    public void setCuisine(String cuisine) {
+        this.cuisine = cuisine;
     }
 
     public Long getTimestamp() {

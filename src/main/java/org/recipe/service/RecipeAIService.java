@@ -27,6 +27,7 @@ public class RecipeAIService {
 
         return recipeAi.generateRecipe(
                 request.getDiet(),
+                request.cuisineOrAny(),
                 ingredients,
                 request.getServings(),
                 context);

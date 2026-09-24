@@ -11,6 +11,8 @@ public class RecipeRequest {
     public String diet;
     public List<String> ingredients;
     public int servings;
+    // Optional, e.g. "italian"
+    public String cuisine;
     public String userId;
 
     public String getDiet() {
@@ -25,6 +27,15 @@ public class RecipeRequest {
         return servings;
     }
 
+	public String getCuisine() {
+		return cuisine;
+	}
+
+	// For prompts: the requested cuisine, or "any"
+	public String cuisineOrAny() {
+		return cuisine == null || cuisine.isBlank() ? "any" : cuisine.trim();
+	}
+
 	public String getUserId() {
 		return userId;
 	}
@@ -35,8 +46,9 @@ public class RecipeRequest {
 				Diet: %s
 				Ingredients: %s
 				Servings: %d
+				Cuisine: %s
 				"""
-				.formatted(diet, String.join(", ", ingredients), servings);
+				.formatted(diet, String.join(", ", ingredients), servings, cuisineOrAny());
 	}
 
 	/**

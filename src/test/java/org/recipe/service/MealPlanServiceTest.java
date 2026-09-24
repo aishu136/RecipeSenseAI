@@ -59,8 +59,12 @@ class MealPlanServiceTest {
     UserPreferenceStore preferences;
 
     void savePreference(String userId, String favoriteIngredient, String dietType) {
+        savePreference(userId, favoriteIngredient, dietType, null);
+    }
+
+    void savePreference(String userId, String favoriteIngredient, String dietType, String cuisine) {
         preferences.receive(new ObjectMapper().valueToTree(
-                new UserPreference(userId, favoriteIngredient, null, dietType)).toString());
+                new UserPreference(userId, favoriteIngredient, cuisine, dietType)).toString());
     }
 
     static MealPlanRequest forUser(String userId, String diet, int days, String... ingredients) {
@@ -88,9 +92,9 @@ class MealPlanServiceTest {
 
     @Test
     void buildsDaysFromBreakfastAndMainCourseRecipes() {
-        when(spoonacular.search("vegetarian", null, "breakfast", "random", 2, true, "key"))
+        when(spoonacular.search("vegetarian", null, null, "breakfast", "random", 2, true, "key"))
                 .thenReturn(recipes(1, 2));
-        when(spoonacular.search("vegetarian", null, "main course", "random", 4, true, "key"))
+        when(spoonacular.search("vegetarian", null, null, "main course", "random", 4, true, "key"))
                 .thenReturn(recipes(10, 4));
 
         MealPlan plan = service.plan(request("vegetarian", 2));
@@ -105,12 +109,12 @@ class MealPlanServiceTest {
 
     @Test
     void prefersRecipesUsingTheIngredientsThenTopsUp() {
-        when(spoonacular.search("vegan", "rice,lentils", "breakfast", "max-used-ingredients", 1, true, "key"))
+        when(spoonacular.search("vegan", "rice,lentils", null, "breakfast", "max-used-ingredients", 1, true, "key"))
                 .thenReturn(recipes(1, 1));
-        when(spoonacular.search("vegan", "rice,lentils", "main course", "max-used-ingredients", 2, true, "key"))
+        when(spoonacular.search("vegan", "rice,lentils", null, "main course", "max-used-ingredients", 2, true, "key"))
                 .thenReturn(recipes(10, 1));
         // The top-up may return a recipe already found; it must not be used twice
-        when(spoonacular.search("vegan", null, "main course", "random", 2, true, "key"))
+        when(spoonacular.search("vegan", null, null, "main course", "random", 2, true, "key"))
                 .thenReturn(new SearchResponse(List.of(recipe(10), recipe(20)), 2));
 
         MealPlan.Day day = service.plan(request("vegan", 1, "rice", "lentils")).days().get(0);
@@ -119,14 +123,14 @@ class MealPlanServiceTest {
         assertEquals(10, day.lunch().id());
         assertEquals(20, day.dinner().id());
         // Enough breakfasts already, so no top-up search for them
-        verify(spoonacular, never()).search(any(), isNull(), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
+        verify(spoonacular, never()).search(any(), isNull(), isNull(), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
     }
 
     @Test
     void repeatsRecipesWhenTooFewMatch() {
-        when(spoonacular.search(isNull(), isNull(), eq("breakfast"), eq("random"), eq(3), eq(true), eq("key")))
+        when(spoonacular.search(isNull(), isNull(), isNull(), eq("breakfast"), eq("random"), eq(3), eq(true), eq("key")))
                 .thenReturn(recipes(1, 1));
-        when(spoonacular.search(isNull(), isNull(), eq("main course"), eq("random"), eq(6), eq(true), eq("key")))
+        when(spoonacular.search(isNull(), isNull(), isNull(), eq("main course"), eq("random"), eq(6), eq(true), eq("key")))
                 .thenReturn(recipes(10, 2));
 
         MealPlan plan = service.plan(request("any", 0));
@@ -139,7 +143,7 @@ class MealPlanServiceTest {
 
     @Test
     void notFoundWhenNoRecipesMatchTheDiet() {
-        when(spoonacular.search(anyString(), any(), anyString(), anyString(), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(anyString(), any(), isNull(), anyString(), anyString(), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(new SearchResponse(List.of(), 0));
 
         NotFoundException e = assertThrows(NotFoundException.class, () -> service.plan(request("paleo", 1)));
@@ -148,7 +152,7 @@ class MealPlanServiceTest {
 
     @Test
     void badGatewayWhenTheRecipeApiFails() {
-        when(spoonacular.search(any(), any(), anyString(), anyString(), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(any(), any(), isNull(), anyString(), anyString(), anyInt(), anyBoolean(), anyString()))
                 .thenThrow(new WebApplicationException(402))
                 .thenThrow(new ProcessingException("connection refused"));
 
@@ -181,9 +185,9 @@ class MealPlanServiceTest {
     @Test
     void usesTheUsersFavouriteIngredients() {
         savePreference("u1", "paneer, spinach", null);
-        when(spoonacular.search("vegetarian", "paneer,spinach", "breakfast", "max-used-ingredients", 1, true, "key"))
+        when(spoonacular.search("vegetarian", "paneer,spinach", null, "breakfast", "max-used-ingredients", 1, true, "key"))
                 .thenReturn(recipes(1, 1));
-        when(spoonacular.search("vegetarian", "paneer,spinach", "main course", "max-used-ingredients", 2, true, "key"))
+        when(spoonacular.search("vegetarian", "paneer,spinach", null, "main course", "max-used-ingredients", 2, true, "key"))
                 .thenReturn(recipes(10, 2));
 
         MealPlan plan = service.plan(forUser("u1", "vegetarian", 1));
@@ -191,20 +195,20 @@ class MealPlanServiceTest {
         assertEquals(List.of(1, 10, 11), List.of(plan.days().get(0).breakfast().id(),
                 plan.days().get(0).lunch().id(), plan.days().get(0).dinner().id()));
         // The request gave its own diet, so no saved diet was used
-        assertEquals(new MealPlan.Personalisation(List.of("paneer", "spinach"), null), plan.personalisedWith());
+        assertEquals(new MealPlan.Personalisation(List.of("paneer", "spinach"), null, null), plan.personalisedWith());
     }
 
     @Test
     void requestIngredientsComeBeforeFavourites() {
         savePreference("u1", "paneer", null);
         // Nothing uses the requested ingredient, one recipe uses the favourite, the rest are topped up
-        when(spoonacular.search(any(), eq("okra"), anyString(), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(any(), eq("okra"), isNull(), anyString(), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(new SearchResponse(List.of(), 0));
-        when(spoonacular.search(any(), eq("paneer"), eq("breakfast"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(any(), eq("paneer"), isNull(), eq("breakfast"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(1, 1));
-        when(spoonacular.search(any(), eq("paneer"), eq("main course"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(any(), eq("paneer"), isNull(), eq("main course"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(10, 1));
-        when(spoonacular.search(any(), isNull(), eq("main course"), eq("random"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(any(), isNull(), isNull(), eq("main course"), eq("random"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(20, 2));
 
         MealPlan.Day day = service.plan(forUser("u1", null, 1, "okra")).days().get(0);
@@ -213,30 +217,63 @@ class MealPlanServiceTest {
         assertEquals(10, day.lunch().id());
         assertEquals(20, day.dinner().id());
         var order = org.mockito.Mockito.inOrder(spoonacular);
-        order.verify(spoonacular).search(isNull(), eq("okra"), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
-        order.verify(spoonacular).search(isNull(), eq("paneer"), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
+        order.verify(spoonacular).search(isNull(), eq("okra"), isNull(), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
+        order.verify(spoonacular).search(isNull(), eq("paneer"), isNull(), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
     }
 
     @Test
     void usesTheSavedDietOnlyWhenTheRequestHasNone() {
         savePreference("u1", null, "vegan");
-        when(spoonacular.search(eq("vegan"), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(eq("vegan"), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(1, 2));
 
         MealPlan plan = service.plan(forUser("u1", "any", 1));
 
-        assertEquals(new MealPlan.Personalisation(List.of(), "vegan"), plan.personalisedWith());
+        assertEquals(new MealPlan.Personalisation(List.of(), "vegan", null), plan.personalisedWith());
 
-        when(spoonacular.search(eq("ketogenic"), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(eq("ketogenic"), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(1, 2));
 
         assertNull(service.plan(forUser("u1", "ketogenic", 1)).personalisedWith());
     }
 
     @Test
+    void savedCuisineComesAfterRequestIngredientsAndBeforeFavourites() {
+        savePreference("u1", "paneer", null, "indian");
+        // Requested ingredient: 1 breakfast; saved cuisine: the second; favourites are never needed
+        when(spoonacular.search(isNull(), eq("okra"), isNull(), eq("breakfast"), eq("max-used-ingredients"), eq(2), eq(true), eq("key")))
+                .thenReturn(recipes(1, 1));
+        when(spoonacular.search(isNull(), isNull(), eq("indian"), eq("breakfast"), eq("random"), eq(2), eq(true), eq("key")))
+                .thenReturn(recipes(2, 5));
+        when(spoonacular.search(isNull(), eq("okra"), isNull(), eq("main course"), eq("max-used-ingredients"), eq(4), eq(true), eq("key")))
+                .thenReturn(recipes(10, 4));
+
+        MealPlan plan = service.plan(forUser("u1", null, 2, "okra"));
+
+        assertEquals(List.of(1, 2), plan.days().stream().map(d -> d.breakfast().id()).toList());
+        assertEquals(new MealPlan.Personalisation(List.of("paneer"), null, "indian"), plan.personalisedWith());
+        verify(spoonacular, never()).search(any(), eq("paneer"), any(), anyString(), anyString(), anyInt(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void savedCuisineIsAPreferenceNotAFilter() {
+        savePreference("u1", null, null, "italian");
+        // No Italian breakfasts: the plan still gets breakfasts from the unfiltered search
+        when(spoonacular.search(isNull(), isNull(), eq("italian"), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(new SearchResponse(List.of(), 0));
+        when(spoonacular.search(isNull(), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        MealPlan plan = service.plan(forUser("u1", null, 1));
+
+        assertEquals(1, plan.days().get(0).breakfast().id());
+        assertEquals(new MealPlan.Personalisation(List.of(), null, "italian"), plan.personalisedWith());
+    }
+
+    @Test
     void savedDietOfAnyIsNoFilter() {
         savePreference("u1", null, "any");
-        when(spoonacular.search(isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(isNull(), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(1, 2));
 
         assertNull(service.plan(forUser("u1", null, 1)).personalisedWith());
@@ -245,7 +282,7 @@ class MealPlanServiceTest {
     @Test
     void unknownUserGetsAnUnpersonalisedPlan() {
         savePreference("u1", "paneer", "vegan");
-        when(spoonacular.search(isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+        when(spoonacular.search(isNull(), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
                 .thenReturn(recipes(1, 2));
 
         assertNull(service.plan(forUser("someone-else", null, 1)).personalisedWith());

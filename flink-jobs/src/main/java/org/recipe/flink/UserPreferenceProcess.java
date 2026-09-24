@@ -19,6 +19,8 @@ public class UserPreferenceProcess
 
     private transient MapState<String, Integer> dietCounts;
 
+    private transient MapState<String, Integer> cuisineCounts;
+
     @Override
     public void open(OpenContext openContext) {
 
@@ -27,6 +29,9 @@ public class UserPreferenceProcess
 
         dietCounts = getRuntimeContext().getMapState(
                 new MapStateDescriptor<>("dietCounts", String.class, Integer.class));
+
+        cuisineCounts = getRuntimeContext().getMapState(
+                new MapStateDescriptor<>("cuisineCounts", String.class, Integer.class));
     }
 
     @Override
@@ -38,26 +43,32 @@ public class UserPreferenceProcess
 
         increment(searchCounts, event.getQuery());
 
-        // Events from before diets were tracked have none; "any" is no diet
-        String diet = normalizeDiet(event.getDiet());
+        // Older events have no diet or cuisine; "any" means none was chosen
+        String diet = normalize(event.getDiet());
         if (diet != null) {
             increment(dietCounts, diet);
+        }
+
+        String cuisine = normalize(event.getCuisine());
+        if (cuisine != null) {
+            increment(cuisineCounts, cuisine);
         }
 
         UserPreference pref = new UserPreference();
         pref.setUserId(event.getUserId());
         pref.setFavoriteIngredient(mostFrequent(searchCounts, ""));
         pref.setDietType(mostFrequent(dietCounts, null));
+        pref.setFavoriteCuisine(mostFrequent(cuisineCounts, null));
 
         out.collect(pref);
     }
 
-    // Lower-cased so "Vegan" and "vegan" count as one diet
-    static String normalizeDiet(String diet) {
-        if (diet == null || diet.isBlank() || diet.trim().equalsIgnoreCase("any")) {
+    // Lower-cased so "Vegan" and "vegan" count as one diet (or cuisine)
+    static String normalize(String value) {
+        if (value == null || value.isBlank() || value.trim().equalsIgnoreCase("any")) {
             return null;
         }
-        return diet.trim().toLowerCase(Locale.ROOT);
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     private static void increment(MapState<String, Integer> counts, String key) throws Exception {

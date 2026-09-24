@@ -30,6 +30,7 @@ class RecipeEventProducerTest {
         event.setUserId("u1");
         event.setQuery("rice, beans");
         event.setDiet("vegan");
+        event.setCuisine("thai");
         event.setTimestamp(123L);
         producer.send(event);
 
@@ -39,6 +40,7 @@ class RecipeEventProducerTest {
         assertEquals("u1", sent.get("userId").asText());
         assertEquals("rice, beans", sent.get("query").asText());
         assertEquals("vegan", sent.get("diet").asText());
+        assertEquals("thai", sent.get("cuisine").asText());
         assertEquals(123L, sent.get("timestamp").asLong());
     }
 }

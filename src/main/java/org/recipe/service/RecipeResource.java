@@ -57,6 +57,9 @@ public class RecipeResource {
         event.setDiet(
                 request.getDiet());
 
+        event.setCuisine(
+                request.getCuisine());
+
         event.setTimestamp(
                 System.currentTimeMillis());
 

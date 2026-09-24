@@ -34,6 +34,7 @@ public class RecipeAgentService {
 
         String response = agent.run(
                 request.getDiet(),
+                request.cuisineOrAny(),
                 String.join(", ", request.getIngredients()),
                 request.getServings(),
                 context

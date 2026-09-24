@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.recipe.model.RecipeSearchEvent;
 
 /**
- * Tracks each user's most frequent search and diet from recipe-search-events
+ * Tracks each user's most frequent search, diet and cuisine from recipe-search-events
  * and publishes the result to user-preferences.
  */
 public class UserPreferenceJob {

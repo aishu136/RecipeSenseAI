@@ -63,7 +63,7 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 
 | Endpoint | Body | Notes |
 |---|---|---|
-| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}` |
+| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`) is optional |
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
@@ -129,13 +129,13 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 
 - `diet` is passed to Spoonacular as is (`vegetarian`, `vegan`, `ketogenic`, `paleo`, `gluten free`, ...); leave it out or use `any` for no restriction.
 - Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
-- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes using their favourite ingredients come next, and their saved diet applies when the request gives none. The response's `personalisedWith` shows what was used (`null` when nothing was):
+- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
 
   ```json
-  "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null}
+  "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null, "cuisine": "indian"}
   ```
 
-  The saved diet is the one the user asks for most often in `/recipe/generate`. Preferences only exist once the user has generated recipes and `UserPreferenceJob` is running.
+  The saved diet and cuisine are the ones the user asks for most often in `/recipe/generate`. Preferences only exist once the user has generated recipes and `UserPreferenceJob` is running.
 
 ```json
 {"days": [
@@ -191,6 +191,6 @@ The LLM provider is chosen at build time: `quarkus dev` uses Ollama, a packaged 
   flink run -c org.recipe.flink.RecipeFlinkJob flink-jobs/target/recipetool-flink-jobs-1.0.0-SNAPSHOT.jar
   ```
 
-`UserPreferenceJob` (optional) aggregates each user's most frequent search and diet from `recipe-search-events` into `user-preferences`, which `/meal-plan` uses to personalise plans. Run it the same way with `org.recipe.flink.UserPreferenceJob`.
+`UserPreferenceJob` (optional) aggregates each user's most frequent search, diet and cuisine from `recipe-search-events` into `user-preferences`, which `/meal-plan` uses to personalise plans. Run it the same way with `org.recipe.flink.UserPreferenceJob`.
 
-When upgrading, deploy the new `UserPreferenceJob` before the app: search events now carry a `diet` field, which versions of the job built before it reject. The job now ignores fields it doesn't know, so later additions won't need this ordering.
+When upgrading, deploy the new `UserPreferenceJob` before the app: search events now carry `diet` and `cuisine` fields, which versions of the job built before diet tracking reject. The job now ignores fields it doesn't know, so later additions won't need this ordering.

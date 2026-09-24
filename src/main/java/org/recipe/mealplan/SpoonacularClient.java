@@ -21,6 +21,7 @@ public interface SpoonacularClient {
     /**
      * @param diet               e.g. "vegetarian", "vegan", "ketogenic"; null for no restriction
      * @param includeIngredients comma-separated ingredients the recipes must use; null for any
+     * @param cuisine            e.g. "italian" or "indian"; null for any
      * @param type               meal type, e.g. "breakfast" or "main course"
      * @param sort               e.g. "random" or "max-used-ingredients"
      */
@@ -29,6 +30,7 @@ public interface SpoonacularClient {
     SearchResponse search(
             @QueryParam("diet") String diet,
             @QueryParam("includeIngredients") String includeIngredients,
+            @QueryParam("cuisine") String cuisine,
             @QueryParam("type") String type,
             @QueryParam("sort") String sort,
             @QueryParam("number") int number,

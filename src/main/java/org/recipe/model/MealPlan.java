@@ -16,6 +16,6 @@ public record MealPlan(List<Day> days, Personalisation personalisedWith) {
     public record Meal(int id, String title, String url, String image, Integer readyInMinutes) { }
 
     // The user's saved preferences the plan was built with; diet is null
-    // when the request gave its own
-    public record Personalisation(List<String> favoriteIngredients, String diet) { }
+    // when the request gave its own, cuisine when none is saved
+    public record Personalisation(List<String> favoriteIngredients, String diet, String cuisine) { }
 }
