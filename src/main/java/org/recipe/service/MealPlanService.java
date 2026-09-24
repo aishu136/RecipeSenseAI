@@ -64,7 +64,9 @@ public class MealPlanService {
                 .filter(diet -> !diet.isBlank() && !diet.equalsIgnoreCase("any"))
                 .orElse(null);
         String diet = request.dietFilter() != null ? request.dietFilter() : savedDiet;
-        String savedCuisine = preference
+        // Likewise the request's own cuisine wins over the saved favourite
+        String requestedCuisine = request.cuisineFilter();
+        String savedCuisine = requestedCuisine != null ? null : preference
                 .map(UserPreference::favoriteCuisine)
                 .filter(cuisine -> !cuisine.isBlank() && !cuisine.equalsIgnoreCase("any"))
                 .orElse(null);
@@ -83,8 +85,8 @@ public class MealPlanService {
         }
 
         int days = request.daysOrDefault();
-        List<Recipe> breakfasts = find(key, diet, filters, BREAKFAST, days);
-        List<Recipe> mains = find(key, diet, filters, MAIN_COURSE, days * 2);
+        List<Recipe> breakfasts = find(key, diet, requestedCuisine, filters, BREAKFAST, days);
+        List<Recipe> mains = find(key, diet, requestedCuisine, filters, MAIN_COURSE, days * 2);
 
         // With fewer matching recipes than meals, recipes repeat across days
         List<MealPlan.Day> plan = new ArrayList<>();
@@ -111,18 +113,26 @@ public class MealPlanService {
     }
 
     // Recipes matching each filter in turn come first, topped up with other
-    // recipes for the diet.
-    private List<Recipe> find(String key, String diet, Set<SearchFilter> filters, String type, int count) {
+    // recipes for the diet. A requested cuisine applies to every search, unless
+    // no recipe of this type has it: few breakfasts are tagged with a cuisine,
+    // so rather than failing the plan that meal type falls back to any cuisine.
+    private List<Recipe> find(String key, String diet, String requestedCuisine, Set<SearchFilter> filters,
+            String type, int count) {
         Map<Integer, Recipe> found = new LinkedHashMap<>();
 
         for (SearchFilter filter : filters) {
             if (found.size() == count) {
                 break;
             }
-            addAll(found, search(key, diet, filter.ingredients(), filter.cuisine(), type, filter.sort(), count), count);
+            String cuisine = requestedCuisine != null ? requestedCuisine : filter.cuisine();
+            addAll(found, search(key, diet, filter.ingredients(), cuisine, type, filter.sort(), count), count);
         }
         if (found.size() < count) {
-            addAll(found, search(key, diet, null, null, type, "random", count), count);
+            addAll(found, search(key, diet, null, requestedCuisine, type, "random", count), count);
+        }
+        if (found.isEmpty() && requestedCuisine != null) {
+            LOG.infof("No %s %s recipes, using any cuisine", requestedCuisine, type);
+            return find(key, diet, null, filters, type, count);
         }
         if (found.isEmpty()) {
             throw new NotFoundException("No " + type + " recipes found"

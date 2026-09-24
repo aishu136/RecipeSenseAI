@@ -11,6 +11,8 @@ public class MealPlanRequest {
 
     // Optional, e.g. "vegetarian", "vegan", "ketogenic"; blank or "any" means no restriction
     public String diet;
+    // Optional, e.g. "italian"; blank or "any" means no preference
+    public String cuisine;
     // Optional: ingredients the plan should use where it can
     public List<String> ingredients;
     // 0 (not given) means DEFAULT_DAYS
@@ -24,6 +26,11 @@ public class MealPlanRequest {
     // The diet to filter recipes by, or null for none
     public String dietFilter() {
         return diet == null || diet.isBlank() || diet.equalsIgnoreCase("any") ? null : diet.trim();
+    }
+
+    // The cuisine to filter recipes by, or null for none
+    public String cuisineFilter() {
+        return cuisine == null || cuisine.isBlank() || cuisine.equalsIgnoreCase("any") ? null : cuisine.trim();
     }
 
     // Comma-separated ingredients, or null for none

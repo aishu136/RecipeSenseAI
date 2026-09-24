@@ -67,7 +67,7 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
-| `POST /meal-plan` | `{"diet", "ingredients": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
+| `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
 
@@ -128,8 +128,9 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 `/meal-plan` builds each day from real recipes found with Spoonacular's [recipe search](https://spoonacular.com/food-api/docs#Search-Recipes-Complex): breakfast from its `breakfast` recipes, lunch and dinner from `main course` ones.
 
 - `diet` is passed to Spoonacular as is (`vegetarian`, `vegan`, `ketogenic`, `paleo`, `gluten free`, ...); leave it out or use `any` for no restriction.
+- `cuisine` (e.g. `italian`, `thai`, `indian`) filters every meal like `diet` does, except that a meal type with no recipes of that cuisine at all falls back to any cuisine rather than failing the plan (Spoonacular tags few breakfasts with a cuisine). Leave it out or use `any` for no preference.
 - Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
-- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
+- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. A `cuisine` in the request replaces the saved one. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
 
   ```json
   "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null, "cuisine": "indian"}

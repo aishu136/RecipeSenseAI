@@ -289,6 +289,67 @@ class MealPlanServiceTest {
         assertNull(service.plan(forUser(null, null, 1)).personalisedWith());
     }
 
+    // ---------- requested cuisine ----------
+
+    static MealPlanRequest withCuisine(MealPlanRequest request, String cuisine) {
+        request.cuisine = cuisine;
+        return request;
+    }
+
+    @Test
+    void requestedCuisineFiltersEverySearch() {
+        when(spoonacular.search(isNull(), eq("okra"), eq("italian"), eq("breakfast"), eq("max-used-ingredients"), eq(1), eq(true), eq("key")))
+                .thenReturn(recipes(1, 1));
+        when(spoonacular.search(isNull(), eq("okra"), eq("italian"), eq("main course"), eq("max-used-ingredients"), eq(2), eq(true), eq("key")))
+                .thenReturn(recipes(10, 1));
+        when(spoonacular.search(isNull(), isNull(), eq("italian"), eq("main course"), eq("random"), eq(2), eq(true), eq("key")))
+                .thenReturn(recipes(20, 2));
+
+        MealPlan.Day day = service.plan(withCuisine(request(null, 1, "okra"), "italian")).days().get(0);
+
+        assertEquals(List.of(1, 10, 20), List.of(day.breakfast().id(), day.lunch().id(), day.dinner().id()));
+        verify(spoonacular, never()).search(any(), any(), isNull(), anyString(), anyString(), anyInt(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void requestedCuisineOverridesTheSavedOne() {
+        savePreference("u1", null, null, "indian");
+        when(spoonacular.search(isNull(), isNull(), eq("thai"), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        MealPlan plan = service.plan(withCuisine(forUser("u1", null, 1), "thai"));
+
+        // The saved cuisine wasn't used, and nothing else was saved
+        assertNull(plan.personalisedWith());
+        verify(spoonacular, never()).search(any(), any(), eq("indian"), anyString(), anyString(), anyInt(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void mealTypeWithNoRecipesOfTheCuisineFallsBackToAnyCuisine() {
+        // No Italian breakfasts at all, but Italian mains exist
+        when(spoonacular.search(isNull(), isNull(), eq("italian"), eq("breakfast"), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(new SearchResponse(List.of(), 0));
+        when(spoonacular.search(isNull(), isNull(), isNull(), eq("breakfast"), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 1));
+        when(spoonacular.search(isNull(), isNull(), eq("italian"), eq("main course"), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(10, 2));
+
+        MealPlan.Day day = service.plan(withCuisine(request(null, 1), "italian")).days().get(0);
+
+        assertEquals(1, day.breakfast().id());
+        assertEquals(10, day.lunch().id());
+        // Mains had Italian recipes, so they were never searched without the cuisine
+        verify(spoonacular, never()).search(any(), any(), isNull(), eq("main course"), anyString(), anyInt(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void blankOrAnyCuisineMeansNoFilter() {
+        assertNull(withCuisine(request(null, 1), null).cuisineFilter());
+        assertNull(withCuisine(request(null, 1), " ").cuisineFilter());
+        assertNull(withCuisine(request(null, 1), "Any").cuisineFilter());
+        assertEquals("mexican", withCuisine(request(null, 1), " mexican ").cuisineFilter());
+    }
+
     @Test
     void blankOrAnyDietMeansNoFilter() {
         assertNull(request(null, 1).dietFilter());
