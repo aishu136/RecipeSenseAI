@@ -129,6 +129,13 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 
 - `diet` is passed to Spoonacular as is (`vegetarian`, `vegan`, `ketogenic`, `paleo`, `gluten free`, ...); leave it out or use `any` for no restriction.
 - Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
+- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes using their favourite ingredients come next, and their saved diet applies when the request gives none. The response's `personalisedWith` shows what was used (`null` when nothing was):
+
+  ```json
+  "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null}
+  ```
+
+  Preferences only exist once the user has generated recipes and `UserPreferenceJob` is running.
 
 ```json
 {"days": [
@@ -184,4 +191,4 @@ The LLM provider is chosen at build time: `quarkus dev` uses Ollama, a packaged 
   flink run -c org.recipe.flink.RecipeFlinkJob flink-jobs/target/recipetool-flink-jobs-1.0.0-SNAPSHOT.jar
   ```
 
-`UserPreferenceJob` (optional) aggregates each user's most frequent search from `recipe-search-events` into `user-preferences`. Run it the same way with `org.recipe.flink.UserPreferenceJob`.
+`UserPreferenceJob` (optional) aggregates each user's most frequent search from `recipe-search-events` into `user-preferences`, which `/meal-plan` uses to personalise plans. Run it the same way with `org.recipe.flink.UserPreferenceJob`.

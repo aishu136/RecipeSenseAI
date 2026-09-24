@@ -28,6 +28,9 @@ import org.recipe.mealplan.SpoonacularClient.Recipe;
 import org.recipe.mealplan.SpoonacularClient.SearchResponse;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
+import org.recipe.model.UserPreference;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
@@ -47,6 +50,23 @@ class MealPlanServiceTest {
         service = new MealPlanService();
         service.spoonacular = spoonacular;
         service.apiKey = Optional.of("key");
+
+        preferences = new UserPreferenceStore();
+        preferences.mapper = new ObjectMapper();
+        service.preferences = preferences;
+    }
+
+    UserPreferenceStore preferences;
+
+    void savePreference(String userId, String favoriteIngredient, String dietType) {
+        preferences.receive(new ObjectMapper().valueToTree(
+                new UserPreference(userId, favoriteIngredient, null, dietType)).toString());
+    }
+
+    static MealPlanRequest forUser(String userId, String diet, int days, String... ingredients) {
+        MealPlanRequest request = request(diet, days, ingredients);
+        request.userId = userId;
+        return request;
     }
 
     static MealPlanRequest request(String diet, int days, String... ingredients) {
@@ -154,6 +174,73 @@ class MealPlanServiceTest {
         assertThrows(BadRequestException.class, () -> service.plan(request("vegan", -1)));
         assertThrows(BadRequestException.class, () -> service.plan(request("vegan", 15)));
         verifyNoInteractions(spoonacular);
+    }
+
+    // ---------- personalisation ----------
+
+    @Test
+    void usesTheUsersFavouriteIngredients() {
+        savePreference("u1", "paneer, spinach", null);
+        when(spoonacular.search("vegetarian", "paneer,spinach", "breakfast", "max-used-ingredients", 1, true, "key"))
+                .thenReturn(recipes(1, 1));
+        when(spoonacular.search("vegetarian", "paneer,spinach", "main course", "max-used-ingredients", 2, true, "key"))
+                .thenReturn(recipes(10, 2));
+
+        MealPlan plan = service.plan(forUser("u1", "vegetarian", 1));
+
+        assertEquals(List.of(1, 10, 11), List.of(plan.days().get(0).breakfast().id(),
+                plan.days().get(0).lunch().id(), plan.days().get(0).dinner().id()));
+        // The request gave its own diet, so no saved diet was used
+        assertEquals(new MealPlan.Personalisation(List.of("paneer", "spinach"), null), plan.personalisedWith());
+    }
+
+    @Test
+    void requestIngredientsComeBeforeFavourites() {
+        savePreference("u1", "paneer", null);
+        // Nothing uses the requested ingredient, one recipe uses the favourite, the rest are topped up
+        when(spoonacular.search(any(), eq("okra"), anyString(), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(new SearchResponse(List.of(), 0));
+        when(spoonacular.search(any(), eq("paneer"), eq("breakfast"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 1));
+        when(spoonacular.search(any(), eq("paneer"), eq("main course"), eq("max-used-ingredients"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(10, 1));
+        when(spoonacular.search(any(), isNull(), eq("main course"), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(20, 2));
+
+        MealPlan.Day day = service.plan(forUser("u1", null, 1, "okra")).days().get(0);
+
+        assertEquals(1, day.breakfast().id());
+        assertEquals(10, day.lunch().id());
+        assertEquals(20, day.dinner().id());
+        var order = org.mockito.Mockito.inOrder(spoonacular);
+        order.verify(spoonacular).search(isNull(), eq("okra"), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
+        order.verify(spoonacular).search(isNull(), eq("paneer"), eq("breakfast"), anyString(), anyInt(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void usesTheSavedDietOnlyWhenTheRequestHasNone() {
+        savePreference("u1", null, "vegan");
+        when(spoonacular.search(eq("vegan"), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        MealPlan plan = service.plan(forUser("u1", "any", 1));
+
+        assertEquals(new MealPlan.Personalisation(List.of(), "vegan"), plan.personalisedWith());
+
+        when(spoonacular.search(eq("ketogenic"), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        assertNull(service.plan(forUser("u1", "ketogenic", 1)).personalisedWith());
+    }
+
+    @Test
+    void unknownUserGetsAnUnpersonalisedPlan() {
+        savePreference("u1", "paneer", "vegan");
+        when(spoonacular.search(isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        assertNull(service.plan(forUser("someone-else", null, 1)).personalisedWith());
+        assertNull(service.plan(forUser(null, null, 1)).personalisedWith());
     }
 
     @Test

@@ -2,9 +2,11 @@ package org.recipe.service;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -20,11 +22,13 @@ import org.recipe.mealplan.SpoonacularClient;
 import org.recipe.mealplan.SpoonacularClient.Recipe;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
+import org.recipe.model.UserPreference;
 
 /**
  * Builds meal plans from real recipes found through the Spoonacular API:
  * breakfasts from its "breakfast" recipes, lunches and dinners from
- * "main course" ones, all filtered by the requested diet.
+ * "main course" ones, all filtered by the requested diet and personalised
+ * with the user's saved preferences.
  */
 @ApplicationScoped
 public class MealPlanService {
@@ -41,6 +45,9 @@ public class MealPlanService {
     @ConfigProperty(name = "spoonacular.api-key")
     Optional<String> apiKey;
 
+    @Inject
+    UserPreferenceStore preferences;
+
     public MealPlan plan(MealPlanRequest request) {
         request.validate();
 
@@ -48,9 +55,28 @@ public class MealPlanService {
                 "Meal plans need a Spoonacular API key: set SPOONACULAR_API_KEY",
                 Response.Status.SERVICE_UNAVAILABLE));
 
+        // Personalise with the user's saved preferences, if any
+        Optional<UserPreference> preference = preferences.find(request.userId);
+        List<String> favorites = preference.map(UserPreference::favoriteIngredients).orElse(List.of());
+        // The request's own diet wins over the saved one
+        String savedDiet = request.dietFilter() != null ? null : preference
+                .map(UserPreference::dietType)
+                .filter(diet -> !diet.isBlank())
+                .orElse(null);
+        String diet = request.dietFilter() != null ? request.dietFilter() : savedDiet;
+
+        // Ingredient filters to try in order, before any recipe for the diet
+        Set<String> ingredientFilters = new LinkedHashSet<>();
+        if (request.ingredientFilter() != null) {
+            ingredientFilters.add(request.ingredientFilter());
+        }
+        if (!favorites.isEmpty()) {
+            ingredientFilters.add(String.join(",", favorites));
+        }
+
         int days = request.daysOrDefault();
-        List<Recipe> breakfasts = find(key, request, BREAKFAST, days);
-        List<Recipe> mains = find(key, request, MAIN_COURSE, days * 2);
+        List<Recipe> breakfasts = find(key, diet, ingredientFilters, BREAKFAST, days);
+        List<Recipe> mains = find(key, diet, ingredientFilters, MAIN_COURSE, days * 2);
 
         // With fewer matching recipes than meals, recipes repeat across days
         List<MealPlan.Day> plan = new ArrayList<>();
@@ -61,24 +87,30 @@ public class MealPlanService {
                     meal(mains.get((2 * i) % mains.size())),
                     meal(mains.get((2 * i + 1) % mains.size()))));
         }
-        return new MealPlan(plan);
+
+        MealPlan.Personalisation personalisedWith = favorites.isEmpty() && savedDiet == null
+                ? null
+                : new MealPlan.Personalisation(favorites, savedDiet);
+        return new MealPlan(plan, personalisedWith);
     }
 
-    // Recipes using the requested ingredients come first, topped up with
-    // other recipes for the diet when there aren't enough.
-    private List<Recipe> find(String key, MealPlanRequest request, String type, int count) {
+    // Recipes using each ingredient filter come first (the request's, then the
+    // user's favourites), topped up with other recipes for the diet.
+    private List<Recipe> find(String key, String diet, Set<String> ingredientFilters, String type, int count) {
         Map<Integer, Recipe> found = new LinkedHashMap<>();
 
-        if (request.ingredientFilter() != null) {
-            addAll(found, search(key, request.dietFilter(), request.ingredientFilter(), type,
-                    "max-used-ingredients", count), count);
+        for (String ingredients : ingredientFilters) {
+            if (found.size() == count) {
+                break;
+            }
+            addAll(found, search(key, diet, ingredients, type, "max-used-ingredients", count), count);
         }
         if (found.size() < count) {
-            addAll(found, search(key, request.dietFilter(), null, type, "random", count), count);
+            addAll(found, search(key, diet, null, type, "random", count), count);
         }
         if (found.isEmpty()) {
             throw new NotFoundException("No " + type + " recipes found"
-                    + (request.dietFilter() == null ? "" : " for diet " + request.dietFilter()));
+                    + (diet == null ? "" : " for diet " + diet));
         }
         return List.copyOf(found.values());
     }
