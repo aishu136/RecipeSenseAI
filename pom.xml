@@ -79,6 +79,12 @@
 			<artifactId>quarkus-rest-jackson</artifactId>
 		</dependency>
 
+		<!-- REST client (Spoonacular recipe API for meal plans) -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-rest-client-jackson</artifactId>
+		</dependency>
+
 		<!-- Kafka (SmallRye Reactive Messaging) -->
 		<dependency>
 			<groupId>io.quarkus</groupId>

@@ -51,6 +51,10 @@ Without it the app still works, but `/recipe/generate` waits `recipe.flink.timeo
 curl -X POST http://localhost:8080/recipe/generate \
   -H "Content-Type: application/json" \
   -d '{"diet":"vegetarian","ingredients":["rice","tomato","onion"],"servings":2,"userId":"u1"}'
+
+curl -X POST http://localhost:8080/meal-plan \
+  -H "Content-Type: application/json" \
+  -d '{"diet":"vegetarian","ingredients":["rice","lentils"],"days":3}'
 ```
 
 In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`).
@@ -63,6 +67,7 @@ In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`)
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
+| `POST /meal-plan` | `{"diet", "ingredients": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
 
@@ -118,6 +123,24 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 
 `recipe-search` uses the Bedrock knowledge base; without AWS credentials it returns nothing (a warning is logged) and generation carries on.
 
+### Meal plans
+
+`/meal-plan` builds each day from real recipes found with Spoonacular's [recipe search](https://spoonacular.com/food-api/docs#Search-Recipes-Complex): breakfast from its `breakfast` recipes, lunch and dinner from `main course` ones.
+
+- `diet` is passed to Spoonacular as is (`vegetarian`, `vegan`, `ketogenic`, `paleo`, `gluten free`, ...); leave it out or use `any` for no restriction.
+- Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
+
+```json
+{"days": [
+  {"day": 1,
+   "breakfast": {"id": 715497, "title": "...", "url": "https://...", "image": "https://...", "readyInMinutes": 15},
+   "lunch": {...},
+   "dinner": {...}}
+]}
+```
+
+Errors: 404 if no recipes match the diet, 502 if Spoonacular fails (bad key, daily quota used up, unreachable), 503 without `SPOONACULAR_API_KEY`. The `meal-planner` MCP tool returns the same plan for 3 days, taking the diet as its input.
+
 ## Configuration
 
 Set through environment variables (defaults in `src/main/resources/application.properties`):
@@ -130,6 +153,7 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `AWS_REGION` | `us-east-1` | Bedrock region |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama in dev mode |
 | `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Vector memory (not used by any endpoint yet) |
+| `SPOONACULAR_API_KEY` | none | Spoonacular recipe API key for meal plans ([free tier](https://spoonacular.com/food-api/console#Dashboard)); without it `/meal-plan` returns 503 |
 
 Camel send retries (`application.properties`):
 

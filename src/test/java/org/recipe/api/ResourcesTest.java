@@ -23,8 +23,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.recipe.GreetingResource;
 import org.recipe.agent.AutonomousRecipeState;
+import org.recipe.model.MealPlan;
+import org.recipe.model.MealPlanRequest;
 import org.recipe.model.RecipeRequest;
 import org.recipe.service.AutonomousRecipeService;
+import org.recipe.service.MealPlanService;
 import org.recipe.service.RecipeAgentService;
 
 import jakarta.ws.rs.BadRequestException;
@@ -37,6 +40,9 @@ class ResourcesTest {
 
     @Mock
     RecipeAgentService agentService;
+
+    @Mock
+    MealPlanService mealPlanService;
 
     @Test
     void autonomousRunsTheGoal() {
@@ -140,6 +146,28 @@ class ResourcesTest {
         assertThrows(BadRequestException.class, () -> resource.streamRecipe(new RecipeRequest())
                 .collect().asList()
                 .await().atMost(Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mealPlanReturnsThePlan() {
+        MealPlanResource resource = new MealPlanResource();
+        resource.service = mealPlanService;
+        MealPlanRequest request = new MealPlanRequest();
+        request.diet = "vegan";
+        MealPlan.Meal oats = new MealPlan.Meal(1, "Oats", "https://example.com/1", null, 10);
+        MealPlan plan = new MealPlan(List.of(new MealPlan.Day(1, oats, oats, oats)));
+        when(mealPlanService.plan(request)).thenReturn(plan);
+
+        assertEquals(plan, resource.plan(request));
+    }
+
+    @Test
+    void mealPlanRejectsMissingBody() {
+        MealPlanResource resource = new MealPlanResource();
+        resource.service = mealPlanService;
+
+        assertThrows(BadRequestException.class, () -> resource.plan(null));
+        verifyNoInteractions(mealPlanService);
     }
 
     @Test
