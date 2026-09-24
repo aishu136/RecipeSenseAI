@@ -7,6 +7,9 @@ public class RecipeSearchEvent {
 
     private String query;
 
+    // The diet of the recipe request, e.g. "vegetarian"
+    private String diet;
+
     private Long timestamp;
 
     public String getUserId() {
@@ -23,6 +26,14 @@ public class RecipeSearchEvent {
 
     public void setQuery(String query) {
         this.query = query;
+    }
+
+    public String getDiet() {
+        return diet;
+    }
+
+    public void setDiet(String diet) {
+        this.diet = diet;
     }
 
     public Long getTimestamp() {

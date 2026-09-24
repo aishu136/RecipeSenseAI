@@ -234,6 +234,15 @@ class MealPlanServiceTest {
     }
 
     @Test
+    void savedDietOfAnyIsNoFilter() {
+        savePreference("u1", null, "any");
+        when(spoonacular.search(isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        assertNull(service.plan(forUser("u1", null, 1)).personalisedWith());
+    }
+
+    @Test
     void unknownUserGetsAnUnpersonalisedPlan() {
         savePreference("u1", "paneer", "vegan");
         when(spoonacular.search(isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(), anyString()))

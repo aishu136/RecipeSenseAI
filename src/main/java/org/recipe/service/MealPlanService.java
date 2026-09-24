@@ -61,7 +61,7 @@ public class MealPlanService {
         // The request's own diet wins over the saved one
         String savedDiet = request.dietFilter() != null ? null : preference
                 .map(UserPreference::dietType)
-                .filter(diet -> !diet.isBlank())
+                .filter(diet -> !diet.isBlank() && !diet.equalsIgnoreCase("any"))
                 .orElse(null);
         String diet = request.dietFilter() != null ? request.dietFilter() : savedDiet;
 

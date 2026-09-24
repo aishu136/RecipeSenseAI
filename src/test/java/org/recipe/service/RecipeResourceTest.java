@@ -121,6 +121,7 @@ class RecipeResourceTest {
         verify(eventProducer).send(event.capture());
         assertEquals("u1", event.getValue().getUserId());
         assertEquals("rice, beans", event.getValue().getQuery());
+        assertEquals("vegan", event.getValue().getDiet());
     }
 
     @Test

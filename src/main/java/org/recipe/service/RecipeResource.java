@@ -54,6 +54,9 @@ public class RecipeResource {
                 String.join(", ",
                         request.getIngredients()));
 
+        event.setDiet(
+                request.getDiet());
+
         event.setTimestamp(
                 System.currentTimeMillis());
 

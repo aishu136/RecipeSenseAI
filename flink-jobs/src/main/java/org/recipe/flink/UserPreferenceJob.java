@@ -9,17 +9,21 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.recipe.model.RecipeSearchEvent;
 
 /**
- * Tracks each user's most frequent search from recipe-search-events and
- * publishes the result to user-preferences.
+ * Tracks each user's most frequent search and diet from recipe-search-events
+ * and publishes the result to user-preferences.
  */
 public class UserPreferenceJob {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    // Ignore fields this job doesn't know, so the app can add fields to
+    // search events without breaking a running job
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     public static void main(String[] args) throws Exception {
 

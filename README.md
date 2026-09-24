@@ -135,7 +135,7 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
   "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null}
   ```
 
-  Preferences only exist once the user has generated recipes and `UserPreferenceJob` is running.
+  The saved diet is the one the user asks for most often in `/recipe/generate`. Preferences only exist once the user has generated recipes and `UserPreferenceJob` is running.
 
 ```json
 {"days": [
@@ -191,4 +191,6 @@ The LLM provider is chosen at build time: `quarkus dev` uses Ollama, a packaged 
   flink run -c org.recipe.flink.RecipeFlinkJob flink-jobs/target/recipetool-flink-jobs-1.0.0-SNAPSHOT.jar
   ```
 
-`UserPreferenceJob` (optional) aggregates each user's most frequent search from `recipe-search-events` into `user-preferences`, which `/meal-plan` uses to personalise plans. Run it the same way with `org.recipe.flink.UserPreferenceJob`.
+`UserPreferenceJob` (optional) aggregates each user's most frequent search and diet from `recipe-search-events` into `user-preferences`, which `/meal-plan` uses to personalise plans. Run it the same way with `org.recipe.flink.UserPreferenceJob`.
+
+When upgrading, deploy the new `UserPreferenceJob` before the app: search events now carry a `diet` field, which versions of the job built before it reject. The job now ignores fields it doesn't know, so later additions won't need this ordering.
