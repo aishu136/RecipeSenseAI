@@ -1,35 +1,6 @@
 @import "tailwindcss";
 
-:root {
-  --background: #faf8f5;
-  --foreground: #1f1d1a;
-  --surface: #ffffff;
-  --surface-2: #f1ede7;
-  --border: #e4ded5;
-  --muted: #6f685f;
-  --accent: #c2410c;
-  --accent-strong: #9a3412;
-  --good: #15803d;
-  --warn: #b45309;
-  --danger: #b91c1c;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #151311;
-    --foreground: #ede9e3;
-    --surface: #1e1b18;
-    --surface-2: #2a2622;
-    --border: #36312b;
-    --muted: #a39b90;
-    --accent: #ea580c;
-    --accent-strong: #c2410c;
-    --good: #22c55e;
-    --warn: #f59e0b;
-    --danger: #f87171;
-  }
-}
-
+/* The colour variables come from theme.scss; this maps them to Tailwind colours */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

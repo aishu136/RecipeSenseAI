@@ -1,0 +1,27 @@
+@use "sass:map";
+@use "../styles/palette";
+
+// Writes each colour in a palette map as a CSS variable
+@mixin color-variables($palette) {
+  @each $name, $value in $palette {
+    --#{$name}: #{$value};
+  }
+}
+
+// Both schemes must name the same colours, or dark mode would silently
+// fall back to a light colour
+@each $name, $value in palette.$light {
+  @if not map.has-key(palette.$dark, $name) {
+    @error "Colour '#{$name}' is in $light but missing from $dark";
+  }
+}
+
+:root {
+  @include color-variables(palette.$light);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    @include color-variables(palette.$dark);
+  }
+}
