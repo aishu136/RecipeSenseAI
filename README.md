@@ -12,6 +12,7 @@ POST /recipe/generate ─► LLM ─► Kafka: recipe-requests ─► Flink (Rec
 |---|---|
 | `src/` | Quarkus app (REST API, AI services, Kafka, Camel) |
 | `flink-jobs/` | Separate Maven project with the Flink jobs, built and deployed on its own |
+| `frontend/` | Next.js web UI for recipes, meal plans and the autonomous agent |
 
 ## Running locally
 
@@ -58,6 +59,16 @@ curl -X POST http://localhost:8080/meal-plan \
 ```
 
 In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`).
+
+**5. Start the web UI** (optional; needs Node.js 20+)
+
+```shell script
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans and the autonomous agent. The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. The user id you enter is remembered in the browser, so recipes you generate personalise your meal plans.
 
 ## API
 
