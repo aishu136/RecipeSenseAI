@@ -56,7 +56,8 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">
       if (token) response = await send(request, target, body, token, guestId);
     }
   } catch {
-    return new Response(`Backend unreachable at ${BACKEND_URL}`, { status: 502 });
+    // Still hand back any refreshed tokens: the old refresh token may no longer work
+    return withCookies(new NextResponse(`Backend unreachable at ${BACKEND_URL}`, { status: 502 }));
   }
 
   const responseHeaders = new Headers();
@@ -65,11 +66,14 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">
   // no-transform stops response compression from buffering event streams
   responseHeaders.set("cache-control", "no-cache, no-transform");
 
-  const result = new NextResponse(response.body, { status: response.status, headers: responseHeaders });
-  if (refreshed) setTokenCookies(result, request, refreshed);
-  else if (refreshed === null) clearTokenCookies(result);
-  if (!savedGuestId) result.cookies.set(GUEST_COOKIE, guestId, cookieOptions(request, GUEST_COOKIE_SECONDS));
-  return result;
+  return withCookies(new NextResponse(response.body, { status: response.status, headers: responseHeaders }));
+
+  function withCookies(result: NextResponse) {
+    if (refreshed) setTokenCookies(result, request, refreshed);
+    else if (refreshed === null) clearTokenCookies(result);
+    if (!savedGuestId) result.cookies.set(GUEST_COOKIE, guestId, cookieOptions(request, GUEST_COOKIE_SECONDS));
+    return result;
+  }
 }
 
 function send(
