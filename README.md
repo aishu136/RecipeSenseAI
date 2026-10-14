@@ -110,7 +110,7 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
 | `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
-| `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
+| `GET /users/{userId}/similar?limit=10` | – | `{users, shared: [{restriction, type, users}]}`: how many of the (up to `limit`, 1–20) users with the most similar saved restrictions there are, and the restrictions (`type` `allergy` or `avoid`) at least two of them share. It never names them or shows one user's restrictions |
 
 `/meal-plan`, `/me` and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id; `/recipe/generate` and `/recipe/stream` take one too, or give guests a few free recipes (see [Authentication](#authentication)). Recipes and meal plans are always made for the signed-in user.
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
@@ -143,7 +143,7 @@ A user's profile (the frontend's Profile page, or `/users/{userId}/...`) holds:
 
 - **Restrictions**, saved in Redis under `dietary-restrictions:{userId}`. Every recipe and meal plan request the user makes adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. Redis is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
 - **Free-text preferences**, e.g. "low sugar, I love spicy food", embedded into OpenSearch (index `user-dietary-profiles`). For each recipe request, the user's three preferences closest to it go into the LLM prompt. They're soft guidance, so if OpenSearch is down the recipe is made without them.
-- **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
+- **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It only reports how many there are and the restrictions at least two of them share, since restrictions are health data: users never see who the others are or any one person's allergies. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
 
 Meal plans use the saved restrictions but not the free-text preferences, since Spoonacular searches can't take them.
 

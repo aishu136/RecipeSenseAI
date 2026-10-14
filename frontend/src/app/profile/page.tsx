@@ -11,7 +11,7 @@ import {
   userPath,
   type DietaryRestrictions,
   type Preference,
-  type SimilarUser,
+  type SimilarRestrictions,
 } from "@/lib/api";
 import { isUnauthorized, signedOut, useCurrentUser } from "@/lib/useCurrentUser";
 
@@ -19,7 +19,7 @@ type Profile = {
   userId: string;
   restrictions: DietaryRestrictions;
   preferences: Preference[];
-  similar: SimilarUser[];
+  similar: SimilarRestrictions;
 };
 
 // The loaded profile, or why it couldn't be loaded, for one user
@@ -29,7 +29,7 @@ async function loadProfile(userId: string): Promise<Profile> {
   const [restrictions, preferences, similar] = await Promise.all([
     getJson<DietaryRestrictions>(userPath(userId, "restrictions")),
     getJson<Preference[]>(userPath(userId, "preferences")),
-    getJson<SimilarUser[]>(userPath(userId, "similar")),
+    getJson<SimilarRestrictions>(userPath(userId, "similar")),
   ]);
   return { userId, restrictions, preferences, similar };
 }
@@ -249,30 +249,30 @@ function PreferencesCard({
   );
 }
 
-function SimilarUsersCard({ similar, hasRestrictions }: { similar: SimilarUser[]; hasRestrictions: boolean }) {
+function SimilarUsersCard({ similar, hasRestrictions }: { similar: SimilarRestrictions; hasRestrictions: boolean }) {
   return (
     <Card className="lg:col-span-2">
       <h2 className="mb-1 font-semibold">Users with similar restrictions</h2>
-      <p className="mb-4 text-sm text-muted">Found by similarity search over everyone&apos;s saved restrictions.</p>
-      {similar.length > 0 ? (
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {similar.map((user) => (
-            <li key={user.userId} className="rounded-lg bg-surface-2 px-3 py-2 text-sm">
-              <div className="flex justify-between gap-3">
-                <span className="font-medium">{user.userId}</span>
-                <span className="text-muted">{Math.round(user.similarity * 100)}% similar</span>
-              </div>
-              <div className="mt-1 text-muted">
-                {[
-                  user.allergies.length > 0 && `Allergic to ${user.allergies.join(", ")}`,
-                  user.avoid.length > 0 && `avoids ${user.avoid.join(", ")}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
-            </li>
-          ))}
-        </ul>
+      <p className="mb-4 text-sm text-muted">
+        Found by similarity search over everyone&apos;s saved restrictions. Nobody is named, and a restriction only
+        shows when at least two of them share it.
+      </p>
+      {similar.users > 0 ? (
+        <>
+          <p className="text-sm">
+            {similar.users} {similar.users === 1 ? "user has" : "users have"} restrictions like yours.
+          </p>
+          {similar.shared.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {similar.shared.map((s) => (
+                <li key={`${s.type}-${s.restriction}`} className="rounded-full bg-surface-2 px-3 py-1 text-sm">
+                  {s.type === "allergy" ? "Allergic to" : "Avoids"} {s.restriction}
+                  <span className="text-muted"> · {s.users} users</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       ) : (
         <p className="text-sm text-muted">
           {hasRestrictions ? "No other users have saved restrictions yet." : "Save some restrictions to find users like you."}

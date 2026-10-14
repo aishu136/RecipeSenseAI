@@ -60,8 +60,9 @@ public class UserProfileIndex {
 
     public record Preference(String id, String text) { }
 
-    // similarity is the cosine similarity of the two users' restrictions, at most 1
-    public record SimilarUser(String userId, List<String> allergies, List<String> avoid, double similarity) { }
+    // Another user's restrictions, without who they are; similarity is the
+    // cosine similarity of the two users' restrictions, at most 1
+    public record SimilarUser(List<String> allergies, List<String> avoid, double similarity) { }
 
     @Inject
     RestHighLevelClient client;
@@ -197,10 +198,13 @@ public class UserProfileIndex {
                 .mustNot(QueryBuilders.termQuery("userId", userId));
         try {
             List<SimilarUser> similar = new ArrayList<>();
-            for (SearchHit hit : search(nearest(others, restrictionsText(restrictions), limit))) {
-                Map<String, Object> source = hit.getSourceAsMap();
-                similar.add(new SimilarUser((String) source.get("userId"), strings(source.get("allergies")),
-                        strings(source.get("avoid")), hit.getScore() - 1));
+            // Only the restrictions: callers must not learn who the other users are
+            SearchSourceBuilder source = nearest(others, restrictionsText(restrictions), limit)
+                    .fetchSource(new String[] { "allergies", "avoid" }, null);
+            for (SearchHit hit : search(source)) {
+                Map<String, Object> fields = hit.getSourceAsMap();
+                similar.add(new SimilarUser(strings(fields.get("allergies")), strings(fields.get("avoid")),
+                        hit.getScore() - 1));
             }
             return similar;
         } catch (IOException | RuntimeException e) {

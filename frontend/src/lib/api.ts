@@ -97,7 +97,12 @@ export type FreeRecipes = { limit: number | null; remaining: number | null };
 // A user's dietary profile, under /users/{userId}
 export type DietaryRestrictions = { allergies: string[]; avoid: string[] };
 export type Preference = { id: string; text: string };
-export type SimilarUser = { userId: string; allergies: string[]; avoid: string[]; similarity: number };
+// GET /users/{userId}/similar: how many users have similar restrictions, and the
+// restrictions at least two of them share (never who they are)
+export type SimilarRestrictions = {
+  users: number;
+  shared: { restriction: string; type: "allergy" | "avoid"; users: number }[];
+};
 
 export function userPath(userId: string, rest: string): string {
   return `/users/${encodeURIComponent(userId.trim())}/${rest}`;

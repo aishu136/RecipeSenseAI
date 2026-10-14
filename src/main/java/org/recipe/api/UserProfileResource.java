@@ -4,7 +4,6 @@ import java.util.List;
 
 import org.recipe.memory.UserProfileIndex;
 import org.recipe.memory.UserProfileIndex.Preference;
-import org.recipe.memory.UserProfileIndex.SimilarUser;
 import org.recipe.model.DietaryRestrictions;
 import org.recipe.service.UserRestrictionStore;
 
@@ -40,6 +39,7 @@ import jakarta.ws.rs.core.MediaType;
 public class UserProfileResource {
 
     static final int MAX_PREFERENCE_LENGTH = 500;
+    // How many of the most similar users /similar summarises, at most
     static final int MAX_SIMILAR = 20;
 
     public record PreferenceRequest(String text) { }
@@ -96,16 +96,17 @@ public class UserProfileResource {
         profiles.deletePreference(requireUserId(userId), id);
     }
 
-    // Other users whose saved restrictions are most like this user's
+    // How many other users have restrictions like this user's, and which
+    // restrictions they share, without saying who they are
     @GET
     @Path("/similar")
-    public List<SimilarUser> similar(@PathParam("userId") String userId,
-            @QueryParam("limit") @DefaultValue("5") int limit) {
+    public SimilarRestrictions similar(@PathParam("userId") String userId,
+            @QueryParam("limit") @DefaultValue("10") int limit) {
         if (limit < 1 || limit > MAX_SIMILAR) {
             throw new BadRequestException("limit must be between 1 and " + MAX_SIMILAR);
         }
         String id = requireUserId(userId);
-        return profiles.similarUsers(id, restrictions.find(id), limit);
+        return SimilarRestrictions.of(profiles.similarUsers(id, restrictions.find(id), limit));
     }
 
     /**

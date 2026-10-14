@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.recipe.api.SimilarRestrictions.Shared;
 import org.recipe.memory.UserProfileIndex;
 import org.recipe.memory.UserProfileIndex.Preference;
 import org.recipe.memory.UserProfileIndex.SimilarUser;
@@ -91,11 +92,15 @@ class UserProfileResourceTest {
     @Test
     void findsUsersWithSimilarSavedRestrictions() {
         DietaryRestrictions mine = DietaryRestrictions.of(List.of("peanut"), List.of());
-        List<SimilarUser> similar = List.of(new SimilarUser("u2", List.of("tree nut"), List.of(), 0.91));
+        List<SimilarUser> similar = List.of(
+                new SimilarUser(List.of("tree nut", "peanut"), List.of(), 0.91),
+                new SimilarUser(List.of("tree nut"), List.of("pork"), 0.84));
         when(restrictions.find("u1")).thenReturn(mine);
         when(profiles.similarUsers("u1", mine, 5)).thenReturn(similar);
 
-        assertEquals(similar, resource.similar("u1", 5));
+        // Only what at least two of them share, and nothing about who they are
+        assertEquals(new SimilarRestrictions(2, List.of(new Shared("tree nut", "allergy", 2))),
+                resource.similar("u1", 5));
     }
 
     @Test
