@@ -94,6 +94,19 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
+| `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
+
+### Health checks
+
+`/q/health` comes from [SmallRye Health](https://quarkus.io/guides/smallrye-health); each endpoint returns 200 when all its checks are `UP` and 503 otherwise. The checks come from the extensions:
+
+| Endpoint | Checks |
+|---|---|
+| `/q/health/live` | Kafka messaging channels have not failed |
+| `/q/health/ready` | Redis is reachable, and the Kafka channels are connected |
+| `/q/health/started` | The Kafka channels are connected |
+
+So with Kafka or Redis down the app is live but not ready, and its startup check stays `DOWN` until Kafka is reachable. OpenSearch, Ollama/Bedrock and Spoonacular have no checks, since the app works (degraded) without them.
 
 ### Dietary restrictions
 

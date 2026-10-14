@@ -140,6 +140,12 @@
 			<artifactId>camel-quarkus-file</artifactId>
 		</dependency>
 
+		<!-- Health checks at /q/health; extensions such as Kafka and Redis add their own -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-smallrye-health</artifactId>
+		</dependency>
+
 		<!-- Redis: each user's saved dietary restrictions -->
 		<dependency>
 			<groupId>io.quarkus</groupId>
