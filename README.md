@@ -126,11 +126,11 @@ Errors come back with a plain-text body saying what went wrong, e.g. a 400 with 
 
 | Endpoint | Checks |
 |---|---|
-| `/q/health/live` | Kafka messaging channels have not failed |
-| `/q/health/ready` | Redis is reachable, and the Kafka channels are connected |
-| `/q/health/started` | The Kafka channels are connected |
+| `/q/health/live` | The app is running |
+| `/q/health/ready` | Redis is reachable |
+| `/q/health/started` | The app has started |
 
-So with Kafka or Redis down the app is live but not ready, and its startup check stays `DOWN` until Kafka is reachable. OpenSearch, Ollama/Bedrock and Spoonacular have no checks, since the app works (degraded) without them.
+Only Redis decides readiness, because without it no recipe or meal plan can be made: they need the user's saved allergies, or the guest's free-recipe count. Kafka is left out of all three checks (`mp.messaging.connector.smallrye-kafka.health-enabled=false`), since the app works without it: recipes come back unscored after `recipe.flink.timeout`, and sends that fail go to the dead-letter file. Otherwise an unreachable Kafka would make every instance unready, and its startup check would never pass, so Kubernetes would keep restarting the app. The Kafka connector can only leave out readiness or every check, so a Kafka channel that fails doesn't show in liveness either; watch the logs or Kafka's own metrics for that. OpenSearch, Ollama/Bedrock and Spoonacular have no checks either, for the same reason.
 
 ### Dietary restrictions
 
