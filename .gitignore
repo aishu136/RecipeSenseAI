@@ -46,3 +46,6 @@ nb-configuration.xml
 
 # Dead letters saved when Kafka is unreachable
 dead-letters/
+
+# Next.js build output if a build runs from the repo root (the frontend has its own .gitignore)
+.next/
