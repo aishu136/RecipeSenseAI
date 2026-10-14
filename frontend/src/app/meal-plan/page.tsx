@@ -8,7 +8,7 @@ import { useUserId } from "@/lib/useUserId";
 
 // Friendlier messages for the errors POST /meal-plan documents
 const ERRORS: Record<number, string> = {
-  404: "No recipes match that diet. Try another diet or cuisine.",
+  404: "No recipes match that diet and those restrictions. Try another diet or cuisine, or fewer restrictions.",
   502: "The Spoonacular recipe API failed (bad key, daily quota used up, or unreachable).",
   503: "Meal plans are unavailable: the backend has no SPOONACULAR_API_KEY set.",
 };
@@ -17,6 +17,8 @@ export default function MealPlanPage() {
   const [diet, setDiet] = useState("");
   const [cuisine, setCuisine] = useState("");
   const [ingredients, setIngredients] = useState("");
+  const [allergies, setAllergies] = useState("");
+  const [avoid, setAvoid] = useState("");
   const [days, setDays] = useState(3);
   const [userId, setUserId] = useUserId();
 
@@ -30,6 +32,8 @@ export default function MealPlanPage() {
       diet: diet.trim() || undefined,
       cuisine: cuisine.trim() || undefined,
       ingredients: splitList(ingredients),
+      allergies: splitList(allergies),
+      avoid: splitList(avoid),
       days,
       userId: userId.trim() || undefined,
     };
@@ -53,7 +57,7 @@ export default function MealPlanPage() {
       </PageHeader>
 
       <Card className="mb-6">
-        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_90px_1fr_auto] lg:items-end">
+        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_90px] lg:items-end">
           <Field label="Diet">
             <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder="any" />
           </Field>
@@ -62,6 +66,12 @@ export default function MealPlanPage() {
           </Field>
           <Field label="Ingredients">
             <Input value={ingredients} onChange={(e) => setIngredients(e.target.value)} placeholder="rice, lentils" />
+          </Field>
+          <Field label="Allergies">
+            <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="peanut, dairy" />
+          </Field>
+          <Field label="Avoid">
+            <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="mushroom" />
           </Field>
           <Field label="Days">
             <Input type="number" min={1} max={14} value={days} onChange={(e) => setDays(Number(e.target.value))} />

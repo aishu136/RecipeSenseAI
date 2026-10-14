@@ -18,6 +18,8 @@ public interface RecipeAi {
         Generate a {{diet}} recipe in {{cuisine}} cuisine style
         using {{ingredients}} for {{servings}} servings.
 
+        {{restrictions}}
+
         Use this background knowledge where it helps:
         {{context}}
 
@@ -29,5 +31,6 @@ public interface RecipeAi {
           "calories": number
         }
         """)
-    String generateRecipe(String diet, String cuisine, String ingredients, int servings, String context);
+    String generateRecipe(String diet, String cuisine, String ingredients, int servings, String restrictions,
+            String context);
 }

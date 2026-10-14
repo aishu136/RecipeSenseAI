@@ -24,6 +24,8 @@ public interface SpoonacularClient {
      * @param cuisine            e.g. "italian" or "indian"; null for any
      * @param type               meal type, e.g. "breakfast" or "main course"
      * @param sort               e.g. "random" or "max-used-ingredients"
+     * @param intolerances       comma-separated, e.g. "peanut,dairy"; null for none
+     * @param excludeIngredients comma-separated ingredients the recipes must not use; null for none
      */
     @GET
     @Path("/complexSearch")
@@ -35,6 +37,8 @@ public interface SpoonacularClient {
             @QueryParam("sort") String sort,
             @QueryParam("number") int number,
             @QueryParam("addRecipeInformation") boolean addRecipeInformation,
+            @QueryParam("intolerances") String intolerances,
+            @QueryParam("excludeIngredients") String excludeIngredients,
             @QueryParam("apiKey") String apiKey);
 
     @JsonIgnoreProperties(ignoreUnknown = true)

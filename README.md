@@ -74,13 +74,22 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 
 | Endpoint | Body | Notes |
 |---|---|---|
-| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`) is optional |
+| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "allergies": [...], "avoid": [...], "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`), `allergies` and `avoid` are optional (see [Dietary restrictions](#dietary-restrictions)) |
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
-| `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
+| `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
+
+### Dietary restrictions
+
+`/recipe/generate`, `/recipe/stream` and `/meal-plan` take two optional lists of what the user can't eat:
+
+- `allergies`, e.g. `["peanut", "dairy"]`: never in a recipe, nor anything made from them. For meal plans, allergies Spoonacular knows as [intolerances](https://spoonacular.com/food-api/docs#Intolerances) (dairy, egg, gluten, grain, peanut, seafood, sesame, shellfish, soy, sulfite, tree nut, wheat, plus a few other names such as `milk` or `fish`) are passed as intolerances, and any others as excluded ingredients.
+- `avoid`, e.g. `["mushroom"]`: ingredients the user doesn't eat, excluded the same way.
+
+A request whose `ingredients` include a restricted one (`"peanut butter"` with a `peanut` allergy) is rejected with 400. For recipes, the LLM prompts spell the restrictions out and the `allergy-check` graph step looks for them in the search results (it falls back to checking for peanuts when none are given). For meal plans, saved favourite ingredients that clash with a restriction are left out. Restrictions aren't saved: send them with every request.
 
 ### Autonomous agent graph
 
@@ -140,6 +149,7 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 
 - `diet` is passed to Spoonacular as is (`vegetarian`, `vegan`, `ketogenic`, `paleo`, `gluten free`, ...); leave it out or use `any` for no restriction.
 - `cuisine` (e.g. `italian`, `thai`, `indian`) filters every meal like `diet` does, except that a meal type with no recipes of that cuisine at all falls back to any cuisine rather than failing the plan (Spoonacular tags few breakfasts with a cuisine). Leave it out or use `any` for no preference.
+- `allergies` and `avoid` filter every search, fallbacks included (see [Dietary restrictions](#dietary-restrictions)).
 - Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
 - With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. A `cuisine` in the request replaces the saved one. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
 
@@ -158,7 +168,7 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 ]}
 ```
 
-Errors: 404 if no recipes match the diet, 502 if Spoonacular fails (bad key, daily quota used up, unreachable), 503 without `SPOONACULAR_API_KEY`. The `meal-planner` MCP tool returns the same plan for 3 days, taking the diet as its input.
+Errors: 404 if no recipes match the diet and restrictions, 502 if Spoonacular fails (bad key, daily quota used up, unreachable), 503 without `SPOONACULAR_API_KEY`. The `meal-planner` MCP tool returns the same plan for 3 days, taking the diet as its input.
 
 ## Configuration
 

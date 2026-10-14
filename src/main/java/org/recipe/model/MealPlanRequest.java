@@ -15,6 +15,9 @@ public class MealPlanRequest {
     public String cuisine;
     // Optional: ingredients the plan should use where it can
     public List<String> ingredients;
+    // Optional: what no recipe in the plan may contain
+    public List<String> allergies;
+    public List<String> avoid;
     // 0 (not given) means DEFAULT_DAYS
     public int days;
     public String userId;
@@ -33,6 +36,10 @@ public class MealPlanRequest {
         return cuisine == null || cuisine.isBlank() || cuisine.equalsIgnoreCase("any") ? null : cuisine.trim();
     }
 
+    public DietaryRestrictions restrictions() {
+        return DietaryRestrictions.of(allergies, avoid);
+    }
+
     // Comma-separated ingredients, or null for none
     public String ingredientFilter() {
         return ingredients == null || ingredients.isEmpty() ? null : String.join(",", ingredients);
@@ -45,5 +52,6 @@ public class MealPlanRequest {
         if (days < 0 || days > MAX_DAYS) {
             throw new BadRequestException("days must be between 1 and " + MAX_DAYS);
         }
+        restrictions().requireAllowed(ingredients);
     }
 }

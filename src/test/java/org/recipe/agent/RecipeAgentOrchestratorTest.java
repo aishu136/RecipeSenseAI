@@ -63,6 +63,17 @@ class RecipeAgentOrchestratorTest {
     }
 
     @Test
+    void allergyCheckLooksForWhatTheUserAvoids() {
+        when(mcp.execute("recipe-search", "vegan rice")).thenReturn("Sesame rice bowl");
+        when(mcp.execute("nutrition", "Sesame rice bowl")).thenReturn("Calories : 400");
+        when(mcp.execute("allergy-check", "Avoid: sesame, soy\nSesame rice bowl")).thenReturn("WARNING : Sesame detected");
+
+        String context = orchestrator.processRecipeRequest("vegan rice", List.of("sesame", "soy"));
+
+        assertTrue(context.contains("WARNING : Sesame detected"));
+    }
+
+    @Test
     void toleratesToolsReturningNull() {
         when(mcp.execute(anyString(), anyString())).thenReturn(null);
 

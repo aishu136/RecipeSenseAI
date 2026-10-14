@@ -35,6 +35,8 @@ public interface RecipeAgent {
     @UserMessage("""
         Generate a {{diet}} recipe in {{cuisine}} cuisine style using {{ingredients}} for {{servings}} servings.
 
+        {{restrictions}}
+
         Use this background knowledge where it helps:
         {{context}}
 
@@ -42,5 +44,5 @@ public interface RecipeAgent {
         - Include ingredients and instructions
         - Use tools for calories and enrichment
         """)
-    String run(String diet, String cuisine, String ingredients, int servings, String context);
+    String run(String diet, String cuisine, String ingredients, int servings, String restrictions, String context);
 }

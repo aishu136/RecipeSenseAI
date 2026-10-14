@@ -5,6 +5,10 @@ export type RecipeRequest = {
   ingredients: string[];
   servings: number;
   cuisine?: string;
+  // Never in the recipe, nor anything made from them
+  allergies?: string[];
+  // Left out of the recipe
+  avoid?: string[];
   userId?: string;
 };
 
@@ -20,6 +24,8 @@ export type MealPlanRequest = {
   diet?: string;
   cuisine?: string;
   ingredients?: string[];
+  allergies?: string[];
+  avoid?: string[];
   days?: number;
   userId?: string;
 };

@@ -3,6 +3,7 @@ package org.recipe.model;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
@@ -37,6 +38,26 @@ class RecipeRequestTest {
     void missingIngredientsAreRejected() {
         assertThrows(BadRequestException.class, () -> request("vegan", null, 2).validate());
         assertThrows(BadRequestException.class, () -> request("vegan", List.of(), 2).validate());
+    }
+
+    @Test
+    void ingredientsTheUserIsAllergicToAreRejected() {
+        RecipeRequest request = request("vegan", List.of("rice", "peanuts"), 2);
+        request.allergies = List.of("Peanut");
+
+        BadRequestException e = assertThrows(BadRequestException.class, request::validate);
+        assertEquals("ingredient peanuts conflicts with the restriction peanut", e.getMessage());
+    }
+
+    @Test
+    void promptListsTheRestrictions() {
+        RecipeRequest request = request("vegan", List.of("rice"), 2);
+        assertTrue(request.toPrompt().contains("Allergies: none"));
+
+        request.allergies = List.of("sesame");
+        request.avoid = List.of("onion", "garlic");
+        assertTrue(request.toPrompt().contains("Allergies: sesame"));
+        assertTrue(request.toPrompt().contains("Avoid: onion, garlic"));
     }
 
     @Test

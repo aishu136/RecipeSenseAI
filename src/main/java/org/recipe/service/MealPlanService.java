@@ -20,6 +20,7 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 import org.recipe.mealplan.SpoonacularClient;
 import org.recipe.mealplan.SpoonacularClient.Recipe;
+import org.recipe.model.DietaryRestrictions;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
 import org.recipe.model.UserPreference;
@@ -27,8 +28,8 @@ import org.recipe.model.UserPreference;
 /**
  * Builds meal plans from real recipes found through the Spoonacular API:
  * breakfasts from its "breakfast" recipes, lunches and dinners from
- * "main course" ones, all filtered by the requested diet and personalised
- * with the user's saved preferences.
+ * "main course" ones, all filtered by the requested diet and dietary
+ * restrictions and personalised with the user's saved preferences.
  */
 @ApplicationScoped
 public class MealPlanService {
@@ -55,9 +56,16 @@ public class MealPlanService {
                 "Meal plans need a Spoonacular API key: set SPOONACULAR_API_KEY",
                 Response.Status.SERVICE_UNAVAILABLE));
 
-        // Personalise with the user's saved preferences, if any
+        // Restrictions apply to every search, fallbacks included
+        DietaryRestrictions restrictions = request.restrictions();
+
+        // Personalise with the user's saved preferences, if any, leaving out
+        // favourite ingredients the user now can't eat
         Optional<UserPreference> preference = preferences.find(request.userId);
-        List<String> favorites = preference.map(UserPreference::favoriteIngredients).orElse(List.of());
+        List<String> favorites = preference.map(UserPreference::favoriteIngredients).orElse(List.of())
+                .stream()
+                .filter(ingredient -> restrictions.conflict(ingredient).isEmpty())
+                .toList();
         // The request's own diet wins over the saved one
         String savedDiet = request.dietFilter() != null ? null : preference
                 .map(UserPreference::dietType)
@@ -85,8 +93,8 @@ public class MealPlanService {
         }
 
         int days = request.daysOrDefault();
-        List<Recipe> breakfasts = find(key, diet, requestedCuisine, filters, BREAKFAST, days);
-        List<Recipe> mains = find(key, diet, requestedCuisine, filters, MAIN_COURSE, days * 2);
+        List<Recipe> breakfasts = find(key, diet, restrictions, requestedCuisine, filters, BREAKFAST, days);
+        List<Recipe> mains = find(key, diet, restrictions, requestedCuisine, filters, MAIN_COURSE, days * 2);
 
         // With fewer matching recipes than meals, recipes repeat across days
         List<MealPlan.Day> plan = new ArrayList<>();
@@ -116,8 +124,8 @@ public class MealPlanService {
     // recipes for the diet. A requested cuisine applies to every search, unless
     // no recipe of this type has it: few breakfasts are tagged with a cuisine,
     // so rather than failing the plan that meal type falls back to any cuisine.
-    private List<Recipe> find(String key, String diet, String requestedCuisine, Set<SearchFilter> filters,
-            String type, int count) {
+    private List<Recipe> find(String key, String diet, DietaryRestrictions restrictions, String requestedCuisine,
+            Set<SearchFilter> filters, String type, int count) {
         Map<Integer, Recipe> found = new LinkedHashMap<>();
 
         for (SearchFilter filter : filters) {
@@ -125,18 +133,20 @@ public class MealPlanService {
                 break;
             }
             String cuisine = requestedCuisine != null ? requestedCuisine : filter.cuisine();
-            addAll(found, search(key, diet, filter.ingredients(), cuisine, type, filter.sort(), count), count);
+            addAll(found, search(key, diet, restrictions, filter.ingredients(), cuisine, type, filter.sort(), count),
+                    count);
         }
         if (found.size() < count) {
-            addAll(found, search(key, diet, null, requestedCuisine, type, "random", count), count);
+            addAll(found, search(key, diet, restrictions, null, requestedCuisine, type, "random", count), count);
         }
         if (found.isEmpty() && requestedCuisine != null) {
             LOG.infof("No %s %s recipes, using any cuisine", requestedCuisine, type);
-            return find(key, diet, null, filters, type, count);
+            return find(key, diet, restrictions, null, filters, type, count);
         }
         if (found.isEmpty()) {
             throw new NotFoundException("No " + type + " recipes found"
-                    + (diet == null ? "" : " for diet " + diet));
+                    + (diet == null ? "" : " for diet " + diet)
+                    + (restrictions.isEmpty() ? "" : " without " + String.join(", ", restrictions.all())));
         }
         return List.copyOf(found.values());
     }
@@ -150,11 +160,11 @@ public class MealPlanService {
         }
     }
 
-    private List<Recipe> search(String key, String diet, String ingredients, String cuisine,
-            String type, String sort, int count) {
+    private List<Recipe> search(String key, String diet, DietaryRestrictions restrictions, String ingredients,
+            String cuisine, String type, String sort, int count) {
         try {
-            SpoonacularClient.SearchResponse response =
-                    spoonacular.search(diet, ingredients, cuisine, type, sort, count, true, key);
+            SpoonacularClient.SearchResponse response = spoonacular.search(diet, ingredients, cuisine, type, sort,
+                    count, true, restrictions.intolerances(), restrictions.excludedIngredients(), key);
             return response == null || response.results() == null ? List.of() : response.results();
         } catch (WebApplicationException | ProcessingException e) {
             // e.g. 401 bad key, 402 daily quota used up, or the API is unreachable

@@ -4,6 +4,7 @@ import static org.bsc.langgraph4j.StateGraph.END;
 import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -36,6 +37,7 @@ import jakarta.inject.Inject;
 public class RecipeAgentOrchestrator {
 
     static final String PROMPT = "prompt";
+    static final String AVOID = "avoid";
     static final String RECIPES = "recipes";
     static final String NUTRITION = "nutrition";
     static final String ALLERGY = "allergy";
@@ -50,22 +52,31 @@ public class RecipeAgentOrchestrator {
     ManagedExecutor executor;
 
     public String processRecipeRequest(String userPrompt) {
-        return processRecipeRequest(userPrompt, step -> { });
+        return processRecipeRequest(userPrompt, List.of(), step -> { });
+    }
+
+    public String processRecipeRequest(String userPrompt, List<String> avoid) {
+        return processRecipeRequest(userPrompt, avoid, step -> { });
+    }
+
+    public String processRecipeRequest(String userPrompt, Consumer<String> onStep) {
+        return processRecipeRequest(userPrompt, List.of(), onStep);
     }
 
     /**
      * Runs the graph, calling {@code onStep} with each node's name as it
      * finishes (parallel branches included, possibly from other threads), and
-     * returns the combined context.
+     * returns the combined context. The allergy check looks for the
+     * ingredients the user avoids in the search results.
      */
-    public String processRecipeRequest(String userPrompt, Consumer<String> onStep) {
+    public String processRecipeRequest(String userPrompt, List<String> avoid, Consumer<String> onStep) {
         // Without an executor for "search", LangGraph4j runs its branches one after the other
         RunnableConfig config = RunnableConfig.builder()
                 .addParallelNodeExecutor("search", executor)
                 .build();
 
         return buildGraph(onStep)
-                .invoke(Map.of(PROMPT, userPrompt), config)
+                .invoke(Map.of(PROMPT, userPrompt, AVOID, String.join(", ", avoid)), config)
                 .flatMap(state -> state.<String>value(CONTEXT))
                 .orElse("");
     }
@@ -78,7 +89,7 @@ public class RecipeAgentOrchestrator {
                     .addNode("nutrition", step("nutrition", onStep, state -> Map.of(
                             NUTRITION, call("nutrition", text(state, RECIPES)))))
                     .addNode("allergy", step("allergy", onStep, state -> Map.of(
-                            ALLERGY, call("allergy-check", text(state, RECIPES)))))
+                            ALLERGY, call("allergy-check", allergyCheckInput(state)))))
                     .addNode("combine", step("combine", onStep, state -> Map.of(
                             CONTEXT, combine(state))))
                     .addEdge(START, "search")
@@ -108,6 +119,12 @@ public class RecipeAgentOrchestrator {
     // Graph state can't hold nulls; a tool with nothing to say gives ""
     private String call(String tool, String input) {
         return Objects.toString(mcp.execute(tool, input), "");
+    }
+
+    // The search results, after an "Avoid:" line when the user avoids anything
+    private static String allergyCheckInput(AgentState state) {
+        String avoid = text(state, AVOID);
+        return avoid.isEmpty() ? text(state, RECIPES) : "Avoid: " + avoid + "\n" + text(state, RECIPES);
     }
 
     private static String combine(AgentState state) {

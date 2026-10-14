@@ -16,6 +16,8 @@ export default function RecipePage() {
   const [ingredients, setIngredients] = useState("rice, tomato, onion");
   const [servings, setServings] = useState(2);
   const [cuisine, setCuisine] = useState("");
+  const [allergies, setAllergies] = useState("");
+  const [avoid, setAvoid] = useState("");
   const [userId, setUserId] = useUserId();
   const [stream, setStream] = useState(false);
 
@@ -30,6 +32,8 @@ export default function RecipePage() {
       ingredients: splitList(ingredients),
       servings,
       cuisine: cuisine.trim() || undefined,
+      allergies: splitList(allergies),
+      avoid: splitList(avoid),
       userId: userId.trim() || undefined,
     };
     setLoading(true);
@@ -86,6 +90,12 @@ export default function RecipePage() {
                 <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
               </Field>
             </div>
+            <Field label="Allergies" hint="Comma-separated; never in the recipe, e.g. peanut, dairy">
+              <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="none" />
+            </Field>
+            <Field label="Avoid" hint="Comma-separated ingredients you don't eat">
+              <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="none" />
+            </Field>
             <Field label="User id" hint="Optional; your searches personalise meal plans">
               <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="u1" />
             </Field>

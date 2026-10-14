@@ -30,13 +30,15 @@ public class RecipeAgentService {
 
         request.validate();
 
-        String context = orchestrator.processRecipeRequest(request.toPrompt(), onStep);
+        String context = orchestrator.processRecipeRequest(
+                request.toPrompt(), request.restrictions().all(), onStep);
 
         String response = agent.run(
                 request.getDiet(),
                 request.cuisineOrAny(),
                 String.join(", ", request.getIngredients()),
                 request.getServings(),
+                request.restrictions().describe(),
                 context
         );
 

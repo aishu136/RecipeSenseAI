@@ -40,6 +40,17 @@ class McpToolsTest {
     }
 
     @Test
+    void allergyCheckLooksForWhatTheUserAvoids() {
+        AllergyValidationTool tool = new AllergyValidationTool();
+
+        assertEquals("WARNING : Sesame, Shrimp detected",
+                tool.execute("Avoid: sesame, shrimp, dairy\nShrimp toast with sesame seeds"));
+        // Only the listed ingredients count once the user names some
+        assertEquals("No allergy issues found", tool.execute("Avoid: dairy\nThai peanut noodles"));
+        assertEquals("No allergy issues found", tool.execute(null));
+    }
+
+    @Test
     void substitutionSuggestsAlternatives() {
         IngredientSubstitutionTool tool = new IngredientSubstitutionTool();
 

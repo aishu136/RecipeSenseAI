@@ -23,13 +23,14 @@ public class RecipeAIService {
 
         String context =
                 orchestrator.processRecipeRequest(
-                        request.toPrompt());
+                        request.toPrompt(), request.restrictions().all());
 
         return recipeAi.generateRecipe(
                 request.getDiet(),
                 request.cuisineOrAny(),
                 ingredients,
                 request.getServings(),
+                request.restrictions().describe(),
                 context);
     }
 }

@@ -13,6 +13,9 @@ public class RecipeRequest {
     public int servings;
     // Optional, e.g. "italian"
     public String cuisine;
+    // Optional: what the recipe must leave out
+    public List<String> allergies;
+    public List<String> avoid;
     public String userId;
 
     public String getDiet() {
@@ -36,6 +39,10 @@ public class RecipeRequest {
 		return cuisine == null || cuisine.isBlank() ? "any" : cuisine.trim();
 	}
 
+	public DietaryRestrictions restrictions() {
+		return DietaryRestrictions.of(allergies, avoid);
+	}
+
 	public String getUserId() {
 		return userId;
 	}
@@ -47,8 +54,15 @@ public class RecipeRequest {
 				Ingredients: %s
 				Servings: %d
 				Cuisine: %s
+				Allergies: %s
+				Avoid: %s
 				"""
-				.formatted(diet, String.join(", ", ingredients), servings, cuisineOrAny());
+				.formatted(diet, String.join(", ", ingredients), servings, cuisineOrAny(),
+						noneIfEmpty(restrictions().allergies()), noneIfEmpty(restrictions().avoid()));
+	}
+
+	private static String noneIfEmpty(List<String> items) {
+		return items.isEmpty() ? "none" : String.join(", ", items);
 	}
 
 	/**
@@ -64,5 +78,6 @@ public class RecipeRequest {
 		if (servings <= 0) {
 			throw new BadRequestException("servings must be greater than 0");
 		}
+		restrictions().requireAllowed(ingredients);
 	}
 }

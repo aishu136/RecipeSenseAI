@@ -2,7 +2,9 @@ package org.recipe.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,13 +44,14 @@ class RecipeAIServiceTest {
         request.ingredients = List.of("rice", "beans");
         request.servings = 3;
 
-        when(orchestrator.processRecipeRequest(anyString())).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "any", "rice, beans", 3, "tool context")).thenReturn("recipe json");
+        when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
+        when(recipeAi.generateRecipe("vegan", "any", "rice, beans", 3, "No dietary restrictions.", "tool context"))
+                .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(orchestrator).processRecipeRequest(prompt.capture());
+        verify(orchestrator).processRecipeRequest(prompt.capture(), eq(List.of()));
         assertTrue(prompt.getValue().contains("Diet: vegan"));
         assertTrue(prompt.getValue().contains("Ingredients: rice, beans"));
         assertTrue(prompt.getValue().contains("Servings: 3"));
@@ -63,9 +66,36 @@ class RecipeAIServiceTest {
         request.servings = 2;
         request.cuisine = " Thai ";
 
-        when(orchestrator.processRecipeRequest(anyString())).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "Thai", "rice", 2, "tool context")).thenReturn("recipe json");
+        when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
+        when(recipeAi.generateRecipe("vegan", "Thai", "rice", 2, "No dietary restrictions.", "tool context"))
+                .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
+    }
+
+    @Test
+    void passesTheUsersRestrictionsToTheGraphAndTheModel() {
+        RecipeRequest request = new RecipeRequest();
+        request.diet = "vegan";
+        request.ingredients = List.of("rice");
+        request.servings = 2;
+        request.allergies = List.of(" Peanuts ");
+        request.avoid = List.of("mushroom");
+
+        when(orchestrator.processRecipeRequest(anyString(), eq(List.of("peanuts", "mushroom")))).thenReturn("tool context");
+        when(recipeAi.generateRecipe(eq("vegan"), eq("any"), eq("rice"), eq(2), anyString(), eq("tool context")))
+                .thenReturn("recipe json");
+
+        assertEquals("recipe json", service.generateRecipe(request));
+
+        ArgumentCaptor<String> restrictions = ArgumentCaptor.forClass(String.class);
+        verify(recipeAi).generateRecipe(anyString(), anyString(), anyString(), anyInt(), restrictions.capture(), anyString());
+        assertTrue(restrictions.getValue().contains("allergic to peanuts"));
+        assertTrue(restrictions.getValue().contains("does not eat mushroom"));
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(orchestrator).processRecipeRequest(prompt.capture(), eq(List.of("peanuts", "mushroom")));
+        assertTrue(prompt.getValue().contains("Allergies: peanuts"));
+        assertTrue(prompt.getValue().contains("Avoid: mushroom"));
     }
 }

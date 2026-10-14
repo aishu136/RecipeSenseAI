@@ -52,8 +52,9 @@ class RecipeAgentServiceTest {
         request.servings = 1;
 
         Consumer<String> onStep = step -> { };
-        when(orchestrator.processRecipeRequest(request.toPrompt(), onStep)).thenReturn("tool context");
-        when(agent.run("keto", "any", "egg, cheese", 1, "tool context")).thenReturn("omelette");
+        when(orchestrator.processRecipeRequest(request.toPrompt(), List.of(), onStep)).thenReturn("tool context");
+        when(agent.run("keto", "any", "egg, cheese", 1, "No dietary restrictions.", "tool context"))
+                .thenReturn("omelette");
 
         assertEquals("omelette", service.process(request, onStep));
         verify(camelService).sendToKafka(anyString(), eq("omelette"));
