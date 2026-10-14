@@ -40,6 +40,13 @@ public class MealPlanRequest {
         return DietaryRestrictions.of(allergies, avoid);
     }
 
+    // Adds to the request's restrictions, e.g. the user's saved ones
+    public void addRestrictions(DietaryRestrictions extra) {
+        DietaryRestrictions all = restrictions().with(extra);
+        allergies = all.allergies();
+        avoid = all.avoid();
+    }
+
     // Comma-separated ingredients, or null for none
     public String ingredientFilter() {
         return ingredients == null || ingredients.isEmpty() ? null : String.join(",", ingredients);

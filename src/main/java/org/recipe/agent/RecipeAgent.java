@@ -37,6 +37,8 @@ public interface RecipeAgent {
 
         {{restrictions}}
 
+        {{preferences}}
+
         Use this background knowledge where it helps:
         {{context}}
 
@@ -44,5 +46,6 @@ public interface RecipeAgent {
         - Include ingredients and instructions
         - Use tools for calories and enrichment
         """)
-    String run(String diet, String cuisine, String ingredients, int servings, String restrictions, String context);
+    String run(String diet, String cuisine, String ingredients, int servings, String restrictions,
+            String preferences, String context);
 }

@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.ws.rs.BadRequestException;
 
 /**
@@ -44,8 +46,16 @@ public record DietaryRestrictions(List<String> allergies, List<String> avoid) {
         return new DietaryRestrictions(allergies, avoid);
     }
 
+    @JsonIgnore
     public boolean isEmpty() {
         return allergies.isEmpty() && avoid.isEmpty();
+    }
+
+    // Both sets of restrictions together
+    public DietaryRestrictions with(DietaryRestrictions other) {
+        return new DietaryRestrictions(
+                Stream.concat(allergies.stream(), other.allergies().stream()).toList(),
+                Stream.concat(avoid.stream(), other.avoid().stream()).toList());
     }
 
     // Allergies, then avoided ingredients

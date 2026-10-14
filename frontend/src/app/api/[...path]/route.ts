@@ -35,4 +35,4 @@ async function forward(request: Request, ctx: RouteContext<"/api/[...path]">) {
   return new Response(response.body, { status: response.status, headers: responseHeaders });
 }
 
-export { forward as GET, forward as POST };
+export { forward as GET, forward as POST, forward as PUT, forward as DELETE };

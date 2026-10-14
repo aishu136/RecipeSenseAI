@@ -1,14 +1,10 @@
 package org.recipe.memory;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
-import org.opensearch.client.RestClient;
 import org.opensearch.client.RestHighLevelClient;
 import org.opensearch.action.index.IndexRequest;
 import org.opensearch.action.search.SearchRequest;
@@ -23,7 +19,6 @@ import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.index.query.QueryBuilders;
 
 import org.opensearch.common.xcontent.XContentType;
-import org.apache.http.HttpHost;
 
 import org.opensearch.script.Script;
 import org.opensearch.script.ScriptType;
@@ -51,35 +46,10 @@ public class VectorMemoryService {
     @Inject
     EmbeddingModel embeddingModel;
 
-    @ConfigProperty(name = "opensearch.host", defaultValue = "localhost")
-    String host;
-
-    @ConfigProperty(name = "opensearch.port", defaultValue = "9200")
-    int port;
-
-    @ConfigProperty(name = "opensearch.scheme", defaultValue = "http")
-    String scheme;
-
-    private RestHighLevelClient client;
+    @Inject
+    RestHighLevelClient client;
 
     private volatile boolean indexReady;
-
-    // =========================
-    // 🚀 INIT
-    // =========================
-    @PostConstruct
-    void init() {
-        client = new RestHighLevelClient(
-                RestClient.builder(
-                        new HttpHost(host, port, scheme)
-                )
-        );
-    }
-
-    @PreDestroy
-    void close() throws IOException {
-        client.close();
-    }
 
     // =========================
     // 🔥 SAVE

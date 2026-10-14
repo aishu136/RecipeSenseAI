@@ -140,6 +140,12 @@
 			<artifactId>camel-quarkus-file</artifactId>
 		</dependency>
 
+		<!-- Redis: each user's saved dietary restrictions -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-redis-client</artifactId>
+		</dependency>
+
 		<!-- OpenSearch -->
 		<dependency>
 			<groupId>org.opensearch.client</groupId>

@@ -49,7 +49,12 @@ public class MealPlanService {
     @Inject
     UserPreferenceStore preferences;
 
+    @Inject
+    UserRestrictionStore savedRestrictions;
+
     public MealPlan plan(MealPlanRequest request) {
+        // The user's saved restrictions apply too, and are checked like the request's own
+        request.addRestrictions(savedRestrictions.find(request.userId));
         request.validate();
 
         String key = apiKey.filter(k -> !k.isBlank()).orElseThrow(() -> new WebApplicationException(

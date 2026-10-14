@@ -90,7 +90,7 @@ export default function RecipePage() {
                 <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
               </Field>
             </div>
-            <Field label="Allergies" hint="Comma-separated; never in the recipe, e.g. peanut, dairy">
+            <Field label="Allergies" hint="Comma-separated; never in the recipe. Your profile’s saved ones apply too">
               <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="none" />
             </Field>
             <Field label="Avoid" hint="Comma-separated ingredients you don't eat">

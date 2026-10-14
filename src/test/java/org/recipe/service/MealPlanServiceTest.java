@@ -26,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.recipe.mealplan.SpoonacularClient;
 import org.recipe.mealplan.SpoonacularClient.Recipe;
 import org.recipe.mealplan.SpoonacularClient.SearchResponse;
+import org.recipe.model.DietaryRestrictions;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
 import org.recipe.model.UserPreference;
@@ -54,7 +55,13 @@ class MealPlanServiceTest {
         preferences = new UserPreferenceStore();
         preferences.mapper = new ObjectMapper();
         service.preferences = preferences;
+
+        savedRestrictions = org.mockito.Mockito.mock(UserRestrictionStore.class);
+        org.mockito.Mockito.lenient().when(savedRestrictions.find(any())).thenReturn(DietaryRestrictions.NONE);
+        service.savedRestrictions = savedRestrictions;
     }
+
+    UserRestrictionStore savedRestrictions;
 
     UserPreferenceStore preferences;
 
@@ -418,5 +425,17 @@ class MealPlanServiceTest {
         NotFoundException e = assertThrows(NotFoundException.class,
                 () -> service.plan(withRestrictions(request("paleo", 1), List.of("egg"), List.of("bacon"))));
         assertEquals("No breakfast recipes found for diet paleo without egg, bacon", e.getMessage());
+    }
+
+    @Test
+    void savedRestrictionsApplyWithTheRequestsOwn() {
+        when(savedRestrictions.find("u1")).thenReturn(DietaryRestrictions.of(List.of("egg"), List.of("pork")));
+        when(spoonacular.search(isNull(), isNull(), isNull(), anyString(), eq("random"), anyInt(), anyBoolean(),
+                eq("sesame,egg"), eq("pork"), anyString()))
+                .thenReturn(recipes(1, 2));
+
+        MealPlan plan = service.plan(withRestrictions(forUser("u1", null, 1), List.of("sesame"), null));
+
+        assertEquals(1, plan.days().size());
     }
 }

@@ -64,10 +64,10 @@ export class ApiError extends Error {
   }
 }
 
-async function send(path: string, body: string, accept: string): Promise<Response> {
+async function send(path: string, body: string | undefined, accept: string, method = "POST"): Promise<Response> {
   const response = await fetch(`/api${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept },
+    method,
+    headers: body === undefined ? { accept } : { "content-type": "application/json", accept },
     body,
   });
   if (!response.ok) {
@@ -79,6 +79,27 @@ async function send(path: string, body: string, accept: string): Promise<Respons
 
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await send(path, JSON.stringify(body), "application/json")).json();
+}
+
+export async function putJson<T>(path: string, body: unknown): Promise<T> {
+  return (await send(path, JSON.stringify(body), "application/json", "PUT")).json();
+}
+
+export async function getJson<T>(path: string): Promise<T> {
+  return (await send(path, undefined, "application/json", "GET")).json();
+}
+
+export async function deleteResource(path: string): Promise<void> {
+  await send(path, undefined, "application/json", "DELETE");
+}
+
+// A user's dietary profile, under /users/{userId}
+export type DietaryRestrictions = { allergies: string[]; avoid: string[] };
+export type Preference = { id: string; text: string };
+export type SimilarUser = { userId: string; allergies: string[]; avoid: string[]; similarity: number };
+
+export function userPath(userId: string, rest: string): string {
+  return `/users/${encodeURIComponent(userId.trim())}/${rest}`;
 }
 
 /**

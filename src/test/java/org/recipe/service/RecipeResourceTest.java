@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -23,6 +24,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.recipe.kafka.RecipeEventProducer;
+import org.recipe.model.DietaryRestrictions;
 import org.recipe.model.ProcessedRecipe;
 import org.recipe.model.RecipeRequest;
 import org.recipe.model.RecipeSearchEvent;
@@ -44,6 +46,9 @@ class RecipeResourceTest {
     @Mock
     RecipeEventProducer eventProducer;
 
+    @Mock
+    UserRestrictionStore restrictions;
+
     RecipeResource resource;
 
     @BeforeEach
@@ -54,6 +59,8 @@ class RecipeResourceTest {
         resource.consumer = consumer;
         resource.eventProducer = eventProducer;
         resource.flinkTimeout = Duration.ofSeconds(2);
+        resource.restrictions = restrictions;
+        lenient().when(restrictions.find(any())).thenReturn(DietaryRestrictions.NONE);
     }
 
     private static RecipeRequest request() {
@@ -133,5 +140,29 @@ class RecipeResourceTest {
 
         assertThrows(BadRequestException.class, () -> resource.generate(request));
         verifyNoInteractions(aiService, producer, consumer, eventProducer);
+    }
+
+    @Test
+    void rejectsIngredientsTheUserSavedAsRestricted() {
+        RecipeRequest request = request();
+        when(restrictions.find("u1")).thenReturn(DietaryRestrictions.of(List.of(), List.of("beans")));
+
+        BadRequestException e = assertThrows(BadRequestException.class, () -> resource.generate(request));
+        assertEquals("ingredient beans conflicts with the restriction beans", e.getMessage());
+        verifyNoInteractions(aiService, eventProducer);
+    }
+
+    @Test
+    void addsTheUsersSavedRestrictionsToTheRequest() {
+        RecipeRequest request = request();
+        request.allergies = List.of("sesame");
+        when(restrictions.find("u1")).thenReturn(DietaryRestrictions.of(List.of("peanut"), List.of("pork")));
+        when(aiService.generateRecipe(request)).thenReturn("recipe");
+        when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
+
+        resource.generate(request);
+
+        assertEquals(List.of("sesame", "peanut"), request.allergies);
+        assertEquals(List.of("pork"), request.avoid);
     }
 }

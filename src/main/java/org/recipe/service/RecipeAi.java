@@ -20,6 +20,8 @@ public interface RecipeAi {
 
         {{restrictions}}
 
+        {{preferences}}
+
         Use this background knowledge where it helps:
         {{context}}
 
@@ -32,5 +34,5 @@ public interface RecipeAi {
         }
         """)
     String generateRecipe(String diet, String cuisine, String ingredients, int servings, String restrictions,
-            String context);
+            String preferences, String context);
 }

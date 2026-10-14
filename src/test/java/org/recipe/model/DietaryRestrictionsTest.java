@@ -13,6 +13,8 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import jakarta.ws.rs.BadRequestException;
 
 class DietaryRestrictionsTest {
@@ -57,6 +59,26 @@ class DietaryRestrictionsTest {
         assertEquals("ingredient button mushrooms conflicts with the restriction mushroom", e.getMessage());
         assertDoesNotThrow(() -> restrictions.requireAllowed(List.of("rice")));
         assertDoesNotThrow(() -> restrictions.requireAllowed(null));
+    }
+
+    @Test
+    void combinesTwoSetsOfRestrictions() {
+        DietaryRestrictions combined = DietaryRestrictions.of(List.of("peanut"), List.of("pork"))
+                .with(DietaryRestrictions.of(List.of("Peanut", "egg"), List.of()));
+
+        assertEquals(List.of("peanut", "egg"), combined.allergies());
+        assertEquals(List.of("pork"), combined.avoid());
+    }
+
+    @Test
+    void roundTripsThroughJsonAsTheTwoLists() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        DietaryRestrictions restrictions = DietaryRestrictions.of(List.of("peanut"), List.of("pork"));
+
+        String json = mapper.writeValueAsString(restrictions);
+
+        assertEquals("{\"allergies\":[\"peanut\"],\"avoid\":[\"pork\"]}", json);
+        assertEquals(restrictions, mapper.readValue(json, DietaryRestrictions.class));
     }
 
     @Test

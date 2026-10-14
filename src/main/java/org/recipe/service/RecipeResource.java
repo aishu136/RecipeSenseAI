@@ -33,6 +33,9 @@ public class RecipeResource {
     @Inject
     RecipeEventProducer eventProducer;
 
+    @Inject
+    UserRestrictionStore restrictions;
+
     @ConfigProperty(name = "recipe.flink.timeout", defaultValue = "5s")
     Duration flinkTimeout;
 
@@ -42,6 +45,8 @@ public class RecipeResource {
     @Path("/generate")
     public ProcessedRecipe generate(RecipeRequest request) {
 
+        // The user's saved restrictions apply too, and are checked like the request's own
+        request.addRestrictions(restrictions.find(request.getUserId()));
         request.validate();
 
         RecipeSearchEvent event =

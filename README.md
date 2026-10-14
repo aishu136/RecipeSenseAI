@@ -16,10 +16,11 @@ POST /recipe/generate ─► LLM ─► Kafka: recipe-requests ─► Flink (Rec
 
 ## Running locally
 
-Prerequisites: Java 21, Docker, and [Ollama](https://ollama.com) with the model pulled:
+Prerequisites: Java 21, Docker, and [Ollama](https://ollama.com) with the chat and embedding models pulled:
 
 ```shell script
 ollama pull llama3
+ollama pull nomic-embed-text
 ```
 
 Commands below are for Git Bash; in PowerShell use `.\mvnw.cmd` instead of `./mvnw`.
@@ -31,6 +32,15 @@ docker run -d --name kafka -p 9092:9092 apache/kafka:3.9.0
 ```
 
 Topics are created automatically on first use. Next time, just `docker start kafka`.
+
+**Optional: start Redis and OpenSearch** for saved dietary profiles (see [Dietary profiles](#dietary-profiles))
+
+```shell script
+docker run -d --name redis -p 6379:6379 redis:7.4
+docker run -d --name opensearch -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true opensearchproject/opensearch:2.11.0
+```
+
+Without Redis, requests with a `userId` fail with 503 rather than ignore the user's saved allergies; requests without one work as before. Without OpenSearch, recipes are made without the user's free-text preferences.
 
 **2. Start the Flink scoring job** (keep it running)
 
@@ -79,6 +89,10 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
 | `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
+| `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
+| `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
+| `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
+| `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /hello` | – | Health check |
 
@@ -89,7 +103,17 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 - `allergies`, e.g. `["peanut", "dairy"]`: never in a recipe, nor anything made from them. For meal plans, allergies Spoonacular knows as [intolerances](https://spoonacular.com/food-api/docs#Intolerances) (dairy, egg, gluten, grain, peanut, seafood, sesame, shellfish, soy, sulfite, tree nut, wheat, plus a few other names such as `milk` or `fish`) are passed as intolerances, and any others as excluded ingredients.
 - `avoid`, e.g. `["mushroom"]`: ingredients the user doesn't eat, excluded the same way.
 
-A request whose `ingredients` include a restricted one (`"peanut butter"` with a `peanut` allergy) is rejected with 400. For recipes, the LLM prompts spell the restrictions out and the `allergy-check` graph step looks for them in the search results (it falls back to checking for peanuts when none are given). For meal plans, saved favourite ingredients that clash with a restriction are left out. Restrictions aren't saved: send them with every request.
+A request whose `ingredients` include a restricted one (`"peanut butter"` with a `peanut` allergy) is rejected with 400. For recipes, the LLM prompts spell the restrictions out and the `allergy-check` graph step looks for them in the search results (it falls back to checking for peanuts when none are given). For meal plans, saved favourite ingredients that clash with a restriction are left out.
+
+### Dietary profiles
+
+A user's profile (the frontend's Profile page, or `/users/{userId}/...`) holds:
+
+- **Restrictions**, saved in Redis under `dietary-restrictions:{userId}`. Every request with that `userId` adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. Redis is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
+- **Free-text preferences**, e.g. "low sugar, I love spicy food", embedded into OpenSearch (index `user-dietary-profiles`). For each recipe request, the user's three preferences closest to it go into the LLM prompt. They're soft guidance, so if OpenSearch is down the recipe is made without them.
+- **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
+
+Meal plans use the saved restrictions but not the free-text preferences, since Spoonacular searches can't take them.
 
 ### Autonomous agent graph
 
@@ -181,7 +205,8 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `BEDROCK_KB_ID` | placeholder | Bedrock knowledge base for RAG |
 | `AWS_REGION` | `us-east-1` | Bedrock region |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama in dev mode |
-| `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Vector memory (not used by any endpoint yet) |
+| `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Users' free-text preferences and a searchable copy of their restrictions |
+| `REDIS_URL` | `redis://localhost:6379` | Users' saved dietary restrictions |
 | `SPOONACULAR_API_KEY` | none | Spoonacular recipe API key for meal plans ([free tier](https://spoonacular.com/food-api/console#Dashboard)); without it `/meal-plan` returns 503 |
 
 Camel send retries (`application.properties`):

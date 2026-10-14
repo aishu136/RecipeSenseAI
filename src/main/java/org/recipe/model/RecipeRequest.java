@@ -43,6 +43,13 @@ public class RecipeRequest {
 		return DietaryRestrictions.of(allergies, avoid);
 	}
 
+	// Adds to the request's restrictions, e.g. the user's saved ones
+	public void addRestrictions(DietaryRestrictions extra) {
+		DietaryRestrictions all = restrictions().with(extra);
+		allergies = all.allergies();
+		avoid = all.avoid();
+	}
+
 	public String getUserId() {
 		return userId;
 	}
