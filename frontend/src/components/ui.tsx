@@ -1,4 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
+import { signInHref } from "@/lib/api";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -43,6 +44,21 @@ export function ErrorBox({ message }: { message: string }) {
     <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
       {message}
     </div>
+  );
+}
+
+export const linkButtonClass =
+  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong";
+
+// Shown in place of a page's content when the user isn't signed in
+export function SignInPrompt({ what, returnTo }: { what: string; returnTo: string }) {
+  return (
+    <Card className="flex max-w-md flex-col items-start gap-3">
+      <p className="text-sm text-muted">Sign in to {what}.</p>
+      <a href={signInHref(returnTo)} className={linkButtonClass}>
+        Sign in
+      </a>
+    </Card>
   );
 }
 

@@ -3,11 +3,13 @@ package org.recipe.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.recipe.agent.AutonomousRecipeState.HEALTH_SCORE;
 import static org.recipe.agent.AutonomousRecipeState.NEEDS_IMPROVEMENT;
 import static org.recipe.agent.AutonomousRecipeState.STEPS;
 import static org.recipe.agent.AutonomousRecipeState.STEP_INDEX;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -29,6 +32,7 @@ import org.recipe.service.AutonomousRecipeService;
 import org.recipe.service.MealPlanService;
 import org.recipe.service.RecipeAgentService;
 
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.BadRequestException;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +46,14 @@ class ResourcesTest {
 
     @Mock
     MealPlanService mealPlanService;
+
+    @Mock
+    SecurityIdentity identity;
+
+    @BeforeEach
+    void signIn() {
+        lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
+    }
 
     @Test
     void autonomousRunsTheGoal() {
@@ -111,7 +123,8 @@ class ResourcesTest {
     void streamSendsGraphStepsThenRecipeWordByWord() {
         RecipeStreamingResource resource = new RecipeStreamingResource();
         resource.agentService = agentService;
-        when(agentService.process(any(RecipeRequest.class), any())).thenAnswer(call -> {
+        resource.identity = identity;
+        when(agentService.process(argThat(r -> "u1".equals(r.userId)), any())).thenAnswer(call -> {
             Consumer<String> onStep = call.getArgument(1);
             List.of("search", "nutrition", "allergy", "combine").forEach(onStep);
             return "Rice and beans";
@@ -121,6 +134,7 @@ class ResourcesTest {
         request.diet = "vegan";
         request.ingredients = List.of("rice");
         request.servings = 1;
+        request.userId = "someone-else";
 
         List<String> events = resource.streamRecipe(request)
                 .collect().asList()
@@ -139,6 +153,7 @@ class ResourcesTest {
     void streamFailsWhenTheAgentFails() {
         RecipeStreamingResource resource = new RecipeStreamingResource();
         resource.agentService = agentService;
+        resource.identity = identity;
         when(agentService.process(any(RecipeRequest.class), any()))
                 .thenThrow(new BadRequestException("diet is required"));
 
@@ -151,13 +166,16 @@ class ResourcesTest {
     void mealPlanReturnsThePlan() {
         MealPlanResource resource = new MealPlanResource();
         resource.service = mealPlanService;
+        resource.identity = identity;
         MealPlanRequest request = new MealPlanRequest();
         request.diet = "vegan";
+        request.userId = "someone-else";
         MealPlan.Meal oats = new MealPlan.Meal(1, "Oats", "https://example.com/1", null, 10);
         MealPlan plan = new MealPlan(List.of(new MealPlan.Day(1, oats, oats, oats)));
         when(mealPlanService.plan(request)).thenReturn(plan);
 
         assertEquals(plan, resource.plan(request));
+        assertEquals("u1", request.userId);
     }
 
     @Test

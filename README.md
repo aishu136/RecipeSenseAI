@@ -40,7 +40,7 @@ docker run -d --name redis -p 6379:6379 redis:7.4
 docker run -d --name opensearch -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true opensearchproject/opensearch:2.11.0
 ```
 
-Without Redis, requests with a `userId` fail with 503 rather than ignore the user's saved allergies; requests without one work as before. Without OpenSearch, recipes are made without the user's free-text preferences.
+Without Redis, recipe and meal plan requests fail with 503 rather than ignore the user's saved allergies. Without OpenSearch, recipes are made without the user's free-text preferences.
 
 **2. Start the Flink scoring job** (keep it running)
 
@@ -56,19 +56,27 @@ Without it the app still works, but `/recipe/generate` waits `recipe.flink.timeo
 ./mvnw quarkus:dev
 ```
 
-Dev mode also starts Keycloak in Docker on port 8180, for signing in to the profile endpoints (see [Authentication](#authentication)). It has the users `alice` and `bob`, whose passwords are their names.
+Dev mode also starts Keycloak in Docker on port 8180, for signing in (see [Authentication](#authentication)): recipes, meal plans and profiles need a signed-in user. It has the users `alice` and `bob`, whose passwords are their names.
 
 **4. Try it**
 
+Get an access token for `alice` from dev mode's Keycloak, then send it with each request:
+
 ```shell script
+TOKEN=$(curl -s http://localhost:8180/realms/quarkus/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=recipetool -d client_secret=secret \
+  -d username=alice -d password=alice | sed 's/.*"access_token":"\([^"]*\)".*/\1/')
+
 curl -X POST http://localhost:8080/recipe/generate \
-  -H "Content-Type: application/json" \
-  -d '{"diet":"vegetarian","ingredients":["rice","tomato","onion"],"servings":2,"userId":"u1"}'
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"diet":"vegetarian","ingredients":["rice","tomato","onion"],"servings":2}'
 
 curl -X POST http://localhost:8080/meal-plan \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"diet":"vegetarian","ingredients":["rice","lentils"],"days":3}'
 ```
+
+Tokens last 5 minutes; get a new one when requests start returning 401.
 
 In PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest`).
 
@@ -86,24 +94,24 @@ For signing in against dev mode's Keycloak, the frontend needs the client secret
 OIDC_CLIENT_SECRET=secret npm run dev
 ```
 
-Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans, the autonomous agent, and your dietary profile (after signing in). The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. The user id you enter is remembered in the browser, so recipes you generate personalise your meal plans.
+Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans, the autonomous agent, and your dietary profile (after signing in). The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. Sign in (as `alice` or `bob` in dev mode) to use it: recipes you generate personalise your meal plans.
 
 ## API
 
 | Endpoint | Body | Notes |
 |---|---|---|
-| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "allergies": [...], "avoid": [...], "userId"}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`), `allergies` and `avoid` are optional (see [Dietary restrictions](#dietary-restrictions)) |
+| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "allergies": [...], "avoid": [...]}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`), `allergies` and `avoid` are optional (see [Dietary restrictions](#dietary-restrictions)) |
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
-| `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
+| `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `GET /me` | – | `{userId}`: the signed-in user's id, i.e. their access token's principal. Needs a token |
 | `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
 | `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
 
-The `/users/{userId}/...` endpoints need a token too, and only for the user's own id (see [Authentication](#authentication)).
+`/recipe/...`, `/meal-plan`, `/me` and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id (see [Authentication](#authentication)). Recipes and meal plans are always made for the signed-in user.
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
 
@@ -132,7 +140,7 @@ A request whose `ingredients` include a restricted one (`"peanut butter"` with a
 
 A user's profile (the frontend's Profile page, or `/users/{userId}/...`) holds:
 
-- **Restrictions**, saved in Redis under `dietary-restrictions:{userId}`. Every request with that `userId` adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. Redis is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
+- **Restrictions**, saved in Redis under `dietary-restrictions:{userId}`. Every recipe and meal plan request the user makes adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. Redis is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
 - **Free-text preferences**, e.g. "low sugar, I love spicy food", embedded into OpenSearch (index `user-dietary-profiles`). For each recipe request, the user's three preferences closest to it go into the LLM prompt. They're soft guidance, so if OpenSearch is down the recipe is made without them.
 - **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
 
@@ -140,11 +148,11 @@ Meal plans use the saved restrictions but not the free-text preferences, since S
 
 ### Authentication
 
-`/me` and the `/users/{userId}/...` profile endpoints need an OIDC access token (`Authorization: Bearer ...`), checked by `quarkus-oidc` against the provider at `OIDC_AUTH_SERVER_URL` (AWS Cognito, Keycloak, or any other OIDC provider). `{userId}` must be the token's principal, so users can only read and change their own profile: others get 403, and requests without a valid token 401. The principal is the token's `upn`, `preferred_username` or `sub` claim, whichever it has first; set `QUARKUS_OIDC_TOKEN_PRINCIPAL_CLAIM` to use another (e.g. `username` for Cognito access tokens).
+`/recipe/generate`, `/recipe/stream`, `/meal-plan`, `/me` and the `/users/{userId}/...` profile endpoints need an OIDC access token (`Authorization: Bearer ...`), checked by `quarkus-oidc` against the provider at `OIDC_AUTH_SERVER_URL` (Keycloak, AWS Cognito, or any other OIDC provider); requests without a valid one get 401. The token's principal is the user id: recipes and meal plans are made for it, with its saved restrictions and preferences (a `userId` in the request body is ignored), and `{userId}` in the profile endpoints must be it, so users can only read and change their own profile (others get 403). The principal is the token's `upn`, `preferred_username` or `sub` claim, whichever it has first; set `QUARKUS_OIDC_TOKEN_PRINCIPAL_CLAIM` to use another (e.g. `username` for Cognito access tokens).
 
-The frontend signs users in with the authorization code flow (with PKCE) in its own server: `/auth/login` redirects to the provider, `/auth/callback` swaps the code for an access token and keeps it in an httpOnly cookie, and the `/api` proxy sends it to the backend. `/auth/logout` deletes the cookie, and ends the provider's session too when it advertises an `end_session_endpoint`. Tokens aren't refreshed: when one expires, sign in again. Register `{frontend URL}/auth/callback` as a redirect URI for the client.
+The frontend signs users in with the authorization code flow (with PKCE) in its own server: `/auth/login` redirects to the provider, `/auth/callback` swaps the code for an access token and a refresh token and keeps them in httpOnly cookies, and the `/api` proxy sends the access token to the backend. The access token cookie expires 30 seconds before the token does; the proxy then uses the refresh token to get new tokens before forwarding the request, and also refreshes and retries once if the backend rejects a token anyway. Parallel requests share one refresh, so providers that rotate refresh tokens work. When the refresh token no longer works (e.g. the provider's session ended), both cookies are deleted and the pages ask to sign in again. `/auth/logout` deletes the cookies, and ends the provider's session too when it advertises an `end_session_endpoint`. Register `{frontend URL}/auth/callback` as a redirect URI for the client.
 
-The other endpoints don't need a token. Recipe and meal plan requests still take a `userId` in the body and apply that user's saved restrictions and preferences without checking who sends it, so someone who knows a user id can learn about their restrictions indirectly, e.g. from a 400 for an ingredient that conflicts with one.
+`/autonomous`, `/mcp` and `/q/health` don't need a token; they don't use any user's data.
 
 ### Autonomous agent graph
 
@@ -206,7 +214,7 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 - `cuisine` (e.g. `italian`, `thai`, `indian`) filters every meal like `diet` does, except that a meal type with no recipes of that cuisine at all falls back to any cuisine rather than failing the plan (Spoonacular tags few breakfasts with a cuisine). Leave it out or use `any` for no preference.
 - `allergies` and `avoid` filter every search, fallbacks included (see [Dietary restrictions](#dietary-restrictions)).
 - Recipes using the `ingredients` come first, topped up with other recipes for the diet. When fewer recipes match than there are meals, recipes repeat across days.
-- With a `userId`, the plan is personalised from the user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. A `cuisine` in the request replaces the saved one. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
+- The plan is personalised from the signed-in user's saved preferences (the `user-preferences` topic written by the Flink `UserPreferenceJob`, built from their `/recipe/generate` searches): after the requested ingredients, recipes from their favourite cuisine come next, then recipes using their favourite ingredients, and their saved diet applies when the request gives none. A `cuisine` in the request replaces the saved one. The cuisine is a preference, not a filter: other recipes still fill the plan when too few match it. The response's `personalisedWith` shows what was used (`null` when nothing was):
 
   ```json
   "personalisedWith": {"favoriteIngredients": ["rice", "tomato", "onion"], "diet": null, "cuisine": "indian"}

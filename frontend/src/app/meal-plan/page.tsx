@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { Button, Card, ErrorBox, Field, Input, PageHeader } from "@/components/ui";
+import { Button, Card, ErrorBox, Field, Input, PageHeader, SignInPrompt } from "@/components/ui";
 import { ApiError, postJson, splitList, type Meal, type MealPlan, type MealPlanRequest } from "@/lib/api";
-import { useUserId } from "@/lib/useUserId";
+import { isUnauthorized, signedOut, useCurrentUser } from "@/lib/useCurrentUser";
 
 // Friendlier messages for the errors POST /meal-plan documents
 const ERRORS: Record<number, string> = {
@@ -20,7 +20,7 @@ export default function MealPlanPage() {
   const [allergies, setAllergies] = useState("");
   const [avoid, setAvoid] = useState("");
   const [days, setDays] = useState(3);
-  const [userId, setUserId] = useUserId();
+  const user = useCurrentUser();
 
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +35,6 @@ export default function MealPlanPage() {
       allergies: splitList(allergies),
       avoid: splitList(avoid),
       days,
-      userId: userId.trim() || undefined,
     };
     setLoading(true);
     setError(null);
@@ -43,6 +42,7 @@ export default function MealPlanPage() {
       setPlan(await postJson<MealPlan>("/meal-plan", request));
     } catch (err) {
       setPlan(null);
+      if (isUnauthorized(err)) return signedOut();
       setError(err instanceof ApiError ? (ERRORS[err.status] ?? err.message) : String(err));
     } finally {
       setLoading(false);
@@ -52,55 +52,58 @@ export default function MealPlanPage() {
   return (
     <>
       <PageHeader title="Plan your meals">
-        A day-by-day plan of real recipes from Spoonacular, personalised from your saved preferences when you give a
-        user id.
+        A day-by-day plan of real recipes from Spoonacular, personalised from your searches and the restrictions saved
+        on your profile.
       </PageHeader>
 
-      <Card className="mb-6">
-        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_90px] lg:items-end">
-          <Field label="Diet">
-            <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder="any" />
-          </Field>
-          <Field label="Cuisine">
-            <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
-          </Field>
-          <Field label="Ingredients">
-            <Input value={ingredients} onChange={(e) => setIngredients(e.target.value)} placeholder="rice, lentils" />
-          </Field>
-          <Field label="Allergies">
-            <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="peanut, dairy" />
-          </Field>
-          <Field label="Avoid">
-            <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="mushroom" />
-          </Field>
-          <Field label="Days">
-            <Input type="number" min={1} max={14} value={days} onChange={(e) => setDays(Number(e.target.value))} />
-          </Field>
-          <Field label="User id">
-            <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="optional" />
-          </Field>
-          <Button type="submit" loading={loading}>
-            Plan
-          </Button>
-        </form>
-      </Card>
+      {user.status === "signedOut" ? (
+        <SignInPrompt what="plan your meals" returnTo="/meal-plan" />
+      ) : (
+        <>
+          <Card className="mb-6">
+            <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_90px] lg:items-end">
+              <Field label="Diet">
+                <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder="any" />
+              </Field>
+              <Field label="Cuisine">
+                <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
+              </Field>
+              <Field label="Ingredients">
+                <Input value={ingredients} onChange={(e) => setIngredients(e.target.value)} placeholder="rice, lentils" />
+              </Field>
+              <Field label="Days">
+                <Input type="number" min={1} max={14} value={days} onChange={(e) => setDays(Number(e.target.value))} />
+              </Field>
+              <Field label="Allergies">
+                <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="peanut, dairy" />
+              </Field>
+              <Field label="Avoid">
+                <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="mushroom" />
+              </Field>
+              <Button type="submit" loading={loading}>
+                Plan
+              </Button>
+            </form>
+          </Card>
 
-      {error && <ErrorBox message={error} />}
+          {error && <ErrorBox message={error} />}
 
-      {plan && (
-        <div className="flex flex-col gap-6">
-          {plan.personalisedWith && <Personalisation with={plan.personalisedWith} />}
-          {plan.days.map((day) => (
-            <section key={day.day}>
-              <h2 className="mb-3 text-lg font-semibold">Day {day.day}</h2>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <MealCard label="Breakfast" meal={day.breakfast} />
-                <MealCard label="Lunch" meal={day.lunch} />
-                <MealCard label="Dinner" meal={day.dinner} />
-              </div>
-            </section>
-          ))}
-        </div>
+          {plan && (
+            <div className="flex flex-col gap-6">
+              {plan.personalisedWith && <Personalisation with={plan.personalisedWith} />}
+              {plan.days.map((day) => (
+                <section key={day.day}>
+                  <h2 className="mb-3 text-lg font-semibold">Day {day.day}</h2>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <MealCard label="Breakfast" meal={day.breakfast} />
+                    <MealCard label="Lunch" meal={day.lunch} />
+                    <MealCard label="Dinner" meal={day.dinner} />
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </>
   );

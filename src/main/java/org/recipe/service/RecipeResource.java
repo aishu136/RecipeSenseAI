@@ -9,13 +9,18 @@ import org.recipe.model.ProcessedRecipe;
 import org.recipe.model.RecipeRequest;
 import org.recipe.model.RecipeSearchEvent;
 
+import io.quarkus.security.Authenticated;
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
+// Needs an OIDC access token: recipes are made for the signed-in user
+@Authenticated
 @Path("/recipe")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
@@ -36,6 +41,9 @@ public class RecipeResource {
     @Inject
     UserRestrictionStore restrictions;
 
+    @Inject
+    SecurityIdentity identity;
+
     @ConfigProperty(name = "recipe.flink.timeout", defaultValue = "5s")
     Duration flinkTimeout;
 
@@ -44,6 +52,12 @@ public class RecipeResource {
     @POST
     @Path("/generate")
     public ProcessedRecipe generate(RecipeRequest request) {
+
+        if (request == null) {
+            throw new BadRequestException("request body is required");
+        }
+        // Always the signed-in user, whatever the body says
+        request.userId = identity.getPrincipal().getName();
 
         // The user's saved restrictions apply too, and are checked like the request's own
         request.addRestrictions(restrictions.find(request.getUserId()));

@@ -9,7 +9,6 @@ export type RecipeRequest = {
   allergies?: string[];
   // Left out of the recipe
   avoid?: string[];
-  userId?: string;
 };
 
 // POST /recipe/generate; healthScore is null when Flink didn't answer in time
@@ -27,7 +26,6 @@ export type MealPlanRequest = {
   allergies?: string[];
   avoid?: string[];
   days?: number;
-  userId?: string;
 };
 
 export type Meal = {
@@ -179,4 +177,9 @@ export function splitList(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+// Sign-in link (a route handler that redirects to the OIDC provider) that comes back to returnTo
+export function signInHref(returnTo: string): string {
+  return `/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
 }

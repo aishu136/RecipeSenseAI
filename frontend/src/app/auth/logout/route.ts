@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { TOKEN_COOKIE, appUrl, config, discover } from "@/lib/oidc";
+import { appUrl, clearTokenCookies, config, discover } from "@/lib/oidc";
 
-// Forgets the access token, then ends the provider's session too when it
+// Forgets the tokens, then ends the provider's session too when it
 // supports RP-initiated logout (Keycloak does; Cognito doesn't advertise it)
 export async function GET(request: NextRequest) {
   const home = `${appUrl(request)}/profile`;
@@ -17,6 +17,6 @@ export async function GET(request: NextRequest) {
   }
 
   const response = NextResponse.redirect(target);
-  response.cookies.delete(TOKEN_COOKIE);
+  clearTokenCookies(response);
   return response;
 }

@@ -15,11 +15,11 @@ npm run build && npm start   # production
 | `/autonomous` Agent | `POST /autonomous/stream` |
 | `/profile` | `GET /me`, `/users/{userId}/restrictions`, `/preferences` and `/similar` (signed in) |
 
-`src/app/api/[...path]/route.ts` forwards `/api/*` to `BACKEND_URL` (default `http://localhost:8080`), streaming server-sent events through as they arrive, with the signed-in user's access token.
+`src/app/api/[...path]/route.ts` forwards `/api/*` to `BACKEND_URL` (default `http://localhost:8080`), streaming server-sent events through as they arrive, with the signed-in user's access token (refreshed when it expires).
 
 ## Signing in
 
-`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and access token never reach the browser. The token lives in an httpOnly cookie until it expires. `src/lib/oidc.ts` has the shared settings and helpers.
+`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and access token never reach the browser. The access and refresh tokens live in httpOnly cookies, and the `/api` proxy refreshes the access token when it expires. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Recipes, meal plans and the profile need a signed-in user; the pages show a sign-in prompt otherwise.
 
 ## Styling
 

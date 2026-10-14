@@ -29,6 +29,7 @@ import org.recipe.model.ProcessedRecipe;
 import org.recipe.model.RecipeRequest;
 import org.recipe.model.RecipeSearchEvent;
 
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.BadRequestException;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,6 +50,9 @@ class RecipeResourceTest {
     @Mock
     UserRestrictionStore restrictions;
 
+    @Mock
+    SecurityIdentity identity;
+
     RecipeResource resource;
 
     @BeforeEach
@@ -60,6 +64,9 @@ class RecipeResourceTest {
         resource.eventProducer = eventProducer;
         resource.flinkTimeout = Duration.ofSeconds(2);
         resource.restrictions = restrictions;
+        resource.identity = identity;
+        // Signed in as u1
+        lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
         lenient().when(restrictions.find(any())).thenReturn(DietaryRestrictions.NONE);
     }
 
@@ -164,5 +171,24 @@ class RecipeResourceTest {
 
         assertEquals(List.of("sesame", "peanut"), request.allergies);
         assertEquals(List.of("pork"), request.avoid);
+    }
+
+    @Test
+    void makesTheRecipeForTheSignedInUserWhateverTheBodySays() {
+        RecipeRequest request = request();
+        request.userId = "someone-else";
+        when(aiService.generateRecipe(request)).thenReturn("recipe");
+        when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
+
+        resource.generate(request);
+
+        assertEquals("u1", request.userId);
+        verify(restrictions).find("u1");
+    }
+
+    @Test
+    void rejectsAMissingBody() {
+        assertThrows(BadRequestException.class, () -> resource.generate(null));
+        verifyNoInteractions(aiService);
     }
 }
