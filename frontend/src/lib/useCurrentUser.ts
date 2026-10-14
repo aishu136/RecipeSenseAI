@@ -51,7 +51,7 @@ export function isUnauthorized(err: unknown): boolean {
  */
 export function needSignIn(err: unknown, fallback: string) {
   signedOut();
-  const reason = err instanceof ApiError && !/^401/.test(err.message) ? err.message : fallback;
+  const reason = err instanceof ApiError && !/^401\b/.test(err.message) ? err.message : fallback;
   askToSignIn(reason);
 }
 

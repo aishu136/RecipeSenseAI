@@ -21,6 +21,34 @@ npm run build && npm start   # production
 
 `src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and tokens never reach the browser. The access, refresh and ID tokens live in httpOnly cookies; the `/api` proxy refreshes the access token when it expires, and `logout` sends the ID token to the provider so it ends the session without asking to confirm. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Guests can generate 4 free recipes (the recipe page shows how many are left), and the proxy gives each browser a `recipetool_guest` cookie the backend counts them by. When the backend answers 401 (free recipes used up, a guest asking for a meal plan, or an ended session), the page opens the sign-in popup (`src/components/SignInDialog.tsx`) rather than showing an error. Other errors show the message the backend sends in the response body (e.g. an ingredient that conflicts with a saved allergy). The profile page asks guests to sign in.
 
+## End-to-end tests
+
+[Playwright](https://playwright.dev) tests in `e2e/`, in two suites. Both need a browser: run `npx playwright install chromium` once, or set `E2E_BROWSER_CHANNEL=msedge` (or `chrome`) to use one already installed.
+
+**UI tests** (`e2e/ui`) check the pages against a faked backend (`e2e/ui/fakeApi.ts` answers `/api/*` in the browser), so they need nothing else running: guests' free-recipe count, the sign-in popup when they run out or ask for a meal plan, the backend's error messages, the signed-in nav and the profile.
+
+```shell script
+npm run test:e2e        # starts a dev server on port 3100 for the tests
+```
+
+**Stack tests** (`e2e/stack`) run against the whole app: signing in through Keycloak, a saved allergy blocking a recipe, users not reading each other's profiles, token refresh and sign-out. They need the frontend at <http://localhost:3000> (the redirect URI Keycloak allows; set `E2E_STACK_URL` for another), the backend and Redis, and Keycloak's realm `quarkus` with the users `alice` and `bob`. `./mvnw quarkus:dev` starts that Keycloak; without Docker for Quarkus, start it yourself from `e2e/stack/quarkus-realm.json` and point the backend at it:
+
+```shell script
+docker run -d --name keycloak -p 8180:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  -v "$PWD/e2e/stack:/opt/keycloak/data/import:ro" quay.io/keycloak/keycloak:26.0.7 start-dev --import-realm
+# in the repo root
+./mvnw quarkus:dev -Dquarkus.keycloak.devservices.enabled=false \
+  -Dquarkus.oidc.auth-server-url=http://localhost:8180/realms/quarkus -Dquarkus.oidc.credentials.secret=secret
+```
+
+Then, with the frontend running (`OIDC_CLIENT_SECRET=secret npm run dev`):
+
+```shell script
+npm run test:e2e:stack
+```
+
+The test that uses up a guest's 4 free recipes runs the LLM four times, so it's skipped unless `E2E_LLM=1` is set.
+
 ## Styling
 
 Components are styled with Tailwind CSS utility classes. The colour palette lives in Sass: `src/styles/_palette.scss` has a map per colour scheme, and `src/app/theme.scss` turns it into CSS variables (dark values under `prefers-color-scheme: dark`). `src/app/globals.css` loads Tailwind and maps those variables to Tailwind colours with `@theme`, so `bg-accent`, `text-muted` and so on follow the scheme. Tailwind isn't compiled through Sass, so keep Tailwind directives in `.css` files.

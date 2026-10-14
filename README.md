@@ -94,6 +94,8 @@ For signing in against dev mode's Keycloak, the frontend needs the client secret
 OIDC_CLIENT_SECRET=secret npm run dev
 ```
 
+Its end-to-end tests (Playwright) are described in [frontend/README.md](frontend/README.md#end-to-end-tests).
+
 Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans, the autonomous agent, and your dietary profile (after signing in). The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. Sign in (as `alice` or `bob` in dev mode) to use it: recipes you generate personalise your meal plans.
 
 ## API
