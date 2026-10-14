@@ -1,10 +1,23 @@
 // Forwards /api/* to the Quarkus backend, so the browser never calls it
 // directly (no CORS setup needed) and server-sent events stream through.
-// Requests carry the signed-in user's access token, refreshed when it expires.
+// Requests carry the signed-in user's access token, refreshed when it expires,
+// and a guest id, which the backend counts guests' free recipes by.
 import { NextResponse, type NextRequest } from "next/server";
-import { REFRESH_COOKIE, TOKEN_COOKIE, clearTokenCookies, refreshTokens, setTokenCookies, type Tokens } from "@/lib/oidc";
+import {
+  REFRESH_COOKIE,
+  TOKEN_COOKIE,
+  clearTokenCookies,
+  cookieOptions,
+  refreshTokens,
+  setTokenCookies,
+  type Tokens,
+} from "@/lib/oidc";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8080";
+
+// A random id per browser, so guests' free recipes are counted (a year, like any visitor cookie)
+const GUEST_COOKIE = "recipetool_guest";
+const GUEST_COOKIE_SECONDS = 365 * 24 * 60 * 60;
 
 async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">) {
   const { path } = await ctx.params;
@@ -12,6 +25,9 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">
   const target = `${BACKEND_URL}/${path.map(encodeURIComponent).join("/")}${url.search}`;
   // Read once, so the request can be sent again after a refresh
   const body = request.method === "GET" ? undefined : await request.arrayBuffer();
+
+  const savedGuestId = request.cookies.get(GUEST_COOKIE)?.value;
+  const guestId = savedGuestId ?? crypto.randomUUID();
 
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
   let token = request.cookies.get(TOKEN_COOKIE)?.value;
@@ -33,11 +49,11 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">
 
   let response: Response;
   try {
-    response = await send(request, target, body, token);
+    response = await send(request, target, body, token, guestId);
     // Rejected anyway (e.g. revoked, or clocks disagree): refresh once and retry
     if (response.status === 401 && token && refreshToken && refreshed === undefined) {
       token = await refresh();
-      if (token) response = await send(request, target, body, token);
+      if (token) response = await send(request, target, body, token, guestId);
     }
   } catch {
     return new Response(`Backend unreachable at ${BACKEND_URL}`, { status: 502 });
@@ -52,16 +68,25 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">
   const result = new NextResponse(response.body, { status: response.status, headers: responseHeaders });
   if (refreshed) setTokenCookies(result, request, refreshed);
   else if (refreshed === null) clearTokenCookies(result);
+  if (!savedGuestId) result.cookies.set(GUEST_COOKIE, guestId, cookieOptions(request, GUEST_COOKIE_SECONDS));
   return result;
 }
 
-function send(request: NextRequest, target: string, body: ArrayBuffer | undefined, token: string | undefined) {
+function send(
+  request: NextRequest,
+  target: string,
+  body: ArrayBuffer | undefined,
+  token: string | undefined,
+  guestId: string,
+) {
   const headers = new Headers();
   for (const name of ["content-type", "accept"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
   if (token) headers.set("authorization", `Bearer ${token}`);
+  // The backend ignores it for signed-in users
+  headers.set("x-guest-id", guestId);
   return fetch(target, {
     method: request.method,
     headers,

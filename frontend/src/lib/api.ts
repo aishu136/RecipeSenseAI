@@ -91,6 +91,9 @@ export async function deleteResource(path: string): Promise<void> {
   await send(path, undefined, "application/json", "DELETE");
 }
 
+// GET /recipe/free-recipes: what a guest has left; both null once signed in (unlimited)
+export type FreeRecipes = { limit: number | null; remaining: number | null };
+
 // A user's dietary profile, under /users/{userId}
 export type DietaryRestrictions = { allergies: string[]; avoid: string[] };
 export type Preference = { id: string; text: string };

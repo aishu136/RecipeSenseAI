@@ -40,7 +40,7 @@ docker run -d --name redis -p 6379:6379 redis:7.4
 docker run -d --name opensearch -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true opensearchproject/opensearch:2.11.0
 ```
 
-Without Redis, recipe and meal plan requests fail with 503 rather than ignore the user's saved allergies. Without OpenSearch, recipes are made without the user's free-text preferences.
+Without Redis, recipe and meal plan requests fail with 503 rather than ignore the user's saved allergies (or lose count of a guest's free recipes). Without OpenSearch, recipes are made without the user's free-text preferences.
 
 **2. Start the Flink scoring job** (keep it running)
 
@@ -56,7 +56,7 @@ Without it the app still works, but `/recipe/generate` waits `recipe.flink.timeo
 ./mvnw quarkus:dev
 ```
 
-Dev mode also starts Keycloak in Docker on port 8180, for signing in (see [Authentication](#authentication)): recipes, meal plans and profiles need a signed-in user. It has the users `alice` and `bob`, whose passwords are their names.
+Dev mode also starts Keycloak in Docker on port 8180, for signing in (see [Authentication](#authentication)): guests get 4 free recipes, and meal plans and profiles need a signed-in user. It has the users `alice` and `bob`, whose passwords are their names.
 
 **4. Try it**
 
@@ -104,6 +104,7 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
+| `GET /recipe/free-recipes` | – | `{limit, remaining}`: a guest's free recipes; both `null` when signed in (unlimited) |
 | `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `GET /me` | – | `{userId}`: the signed-in user's id, i.e. their access token's principal. Needs a token |
 | `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
@@ -111,7 +112,7 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
 
-`/recipe/...`, `/meal-plan`, `/me` and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id (see [Authentication](#authentication)). Recipes and meal plans are always made for the signed-in user.
+`/meal-plan`, `/me` and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id; `/recipe/generate` and `/recipe/stream` take one too, or give guests a few free recipes (see [Authentication](#authentication)). Recipes and meal plans are always made for the signed-in user.
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
 
@@ -148,9 +149,11 @@ Meal plans use the saved restrictions but not the free-text preferences, since S
 
 ### Authentication
 
-`/recipe/generate`, `/recipe/stream`, `/meal-plan`, `/me` and the `/users/{userId}/...` profile endpoints need an OIDC access token (`Authorization: Bearer ...`), checked by `quarkus-oidc` against the provider at `OIDC_AUTH_SERVER_URL` (Keycloak, AWS Cognito, or any other OIDC provider); requests without a valid one get 401. The token's principal is the user id: recipes and meal plans are made for it, with its saved restrictions and preferences (a `userId` in the request body is ignored), and `{userId}` in the profile endpoints must be it, so users can only read and change their own profile (others get 403). The principal is the token's `upn`, `preferred_username` or `sub` claim, whichever it has first; set `QUARKUS_OIDC_TOKEN_PRINCIPAL_CLAIM` to use another (e.g. `username` for Cognito access tokens).
+`/meal-plan`, `/me` and the `/users/{userId}/...` profile endpoints need an OIDC access token (`Authorization: Bearer ...`), checked by `quarkus-oidc` against the provider at `OIDC_AUTH_SERVER_URL` (Keycloak, AWS Cognito, or any other OIDC provider); requests without one get 401, as does any request with an invalid one. The token's principal is the user id: recipes and meal plans are made for it, with its saved restrictions and preferences (a `userId` in the request body is ignored), and `{userId}` in the profile endpoints must be it, so users can only read and change their own profile (others get 403). The principal is the token's `upn`, `preferred_username` or `sub` claim, whichever it has first; set `QUARKUS_OIDC_TOKEN_PRINCIPAL_CLAIM` to use another (e.g. `username` for Cognito access tokens).
 
 The frontend signs users in with the authorization code flow (with PKCE) in its own server: `/auth/login` redirects to the provider, `/auth/callback` swaps the code for an access token and a refresh token and keeps them in httpOnly cookies, and the `/api` proxy sends the access token to the backend. The access token cookie expires 30 seconds before the token does; the proxy then uses the refresh token to get new tokens before forwarding the request, and also refreshes and retries once if the backend rejects a token anyway. Parallel requests share one refresh, so providers that rotate refresh tokens work. When the refresh token no longer works (e.g. the provider's session ended), both cookies are deleted and the pages ask to sign in again. `/auth/logout` deletes the cookies, and ends the provider's session too when it advertises an `end_session_endpoint`. Register `{frontend URL}/auth/callback` as a redirect URI for the client.
+
+`/recipe/generate` and `/recipe/stream` also work without a token, for guests: each guest gets 4 free recipes (`recipe.guest.free-recipes`), counted in Redis by the `X-Guest-Id` header (a random UUID the frontend keeps in a cookie) for 30 days (`recipe.guest.window`). Guests have no saved restrictions or preferences, but the `allergies` and `avoid` in their requests still apply. Requests that fail (a bad request, or the LLM erroring) don't use up a free recipe. After the last one, they get 401 with a message saying so, which the frontend shows in a sign-in popup; it shows the same popup when a guest tries to make a meal plan. Clearing cookies starts a new allowance, so this nudges people to sign in rather than stopping a determined caller; rate-limit at the gateway if that matters.
 
 `/autonomous`, `/mcp` and `/q/health` don't need a token; they don't use any user's data.
 

@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { ApiError, getJson } from "./api";
+import { askToSignIn } from "./signInDialog";
 
 export type CurrentUser = { status: "loading" } | { status: "signedOut" } | { status: "signedIn"; userId: string };
 
@@ -41,6 +42,17 @@ export function signedOut() {
 
 export function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
+}
+
+/**
+ * For a request the backend refused with 401: the user isn't signed in (or
+ * their session ended), so pops up the sign-in dialog, with the backend's
+ * reason when it gave one (e.g. "You've used your 4 free recipes...").
+ */
+export function needSignIn(err: unknown, fallback: string) {
+  signedOut();
+  const reason = err instanceof ApiError && !/^401/.test(err.message) ? err.message : fallback;
+  askToSignIn(reason);
 }
 
 // The signed-in user, shared by every component that asks

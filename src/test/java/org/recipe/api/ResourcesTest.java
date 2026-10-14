@@ -136,7 +136,7 @@ class ResourcesTest {
         request.servings = 1;
         request.userId = "someone-else";
 
-        List<String> events = resource.streamRecipe(request)
+        List<String> events = resource.streamRecipe(null, request)
                 .collect().asList()
                 .await().atMost(Duration.ofSeconds(5));
 
@@ -157,7 +157,7 @@ class ResourcesTest {
         when(agentService.process(any(RecipeRequest.class), any()))
                 .thenThrow(new BadRequestException("diet is required"));
 
-        assertThrows(BadRequestException.class, () -> resource.streamRecipe(new RecipeRequest())
+        assertThrows(BadRequestException.class, () -> resource.streamRecipe(null, new RecipeRequest())
                 .collect().asList()
                 .await().atMost(Duration.ofSeconds(5)));
     }

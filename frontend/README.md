@@ -19,7 +19,7 @@ npm run build && npm start   # production
 
 ## Signing in
 
-`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and access token never reach the browser. The access and refresh tokens live in httpOnly cookies, and the `/api` proxy refreshes the access token when it expires. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Recipes, meal plans and the profile need a signed-in user; the pages show a sign-in prompt otherwise.
+`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and access token never reach the browser. The access and refresh tokens live in httpOnly cookies, and the `/api` proxy refreshes the access token when it expires. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Guests can generate 4 free recipes (the recipe page shows how many are left), and the proxy gives each browser a `recipetool_guest` cookie the backend counts them by. When the backend answers 401 (free recipes used up, a guest asking for a meal plan, or an ended session), the page opens the sign-in popup (`src/components/SignInDialog.tsx`) rather than showing an error. The profile page asks guests to sign in.
 
 ## Styling
 

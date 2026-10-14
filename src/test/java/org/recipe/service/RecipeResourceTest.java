@@ -7,7 +7,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -31,6 +33,7 @@ import org.recipe.model.RecipeSearchEvent;
 
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.WebApplicationException;
 
 @ExtendWith(MockitoExtension.class)
 class RecipeResourceTest {
@@ -53,6 +56,9 @@ class RecipeResourceTest {
     @Mock
     SecurityIdentity identity;
 
+    @Mock
+    GuestRecipeQuota guestQuota;
+
     RecipeResource resource;
 
     @BeforeEach
@@ -65,6 +71,7 @@ class RecipeResourceTest {
         resource.flinkTimeout = Duration.ofSeconds(2);
         resource.restrictions = restrictions;
         resource.identity = identity;
+        resource.guestQuota = guestQuota;
         // Signed in as u1
         lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
         lenient().when(restrictions.find(any())).thenReturn(DietaryRestrictions.NONE);
@@ -86,7 +93,7 @@ class RecipeResourceTest {
         when(consumer.await(anyString(), eq(Duration.ofSeconds(2)))).thenAnswer(inv ->
                 Optional.of(new ProcessedRecipe(inv.getArgument(0), "{\"recipeName\":\"Rice bowl\"}", 80, false)));
 
-        ProcessedRecipe result = resource.generate(request);
+        ProcessedRecipe result = resource.generate(null, request);
 
         assertEquals(80, result.healthScore());
         assertEquals("{\"recipeName\":\"Rice bowl\"}", result.recipe());
@@ -98,7 +105,7 @@ class RecipeResourceTest {
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
-        ProcessedRecipe result = resource.generate(request);
+        ProcessedRecipe result = resource.generate(null, request);
 
         assertEquals("recipe", result.recipe());
         assertNull(result.healthScore());
@@ -110,7 +117,7 @@ class RecipeResourceTest {
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
-        ProcessedRecipe result = resource.generate(request);
+        ProcessedRecipe result = resource.generate(null, request);
 
         ArgumentCaptor<String> expected = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> sent = ArgumentCaptor.forClass(String.class);
@@ -130,7 +137,7 @@ class RecipeResourceTest {
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
-        resource.generate(request);
+        resource.generate(null, request);
 
         ArgumentCaptor<RecipeSearchEvent> event = ArgumentCaptor.forClass(RecipeSearchEvent.class);
         verify(eventProducer).send(event.capture());
@@ -145,7 +152,7 @@ class RecipeResourceTest {
         RecipeRequest request = request();
         request.ingredients = null;
 
-        assertThrows(BadRequestException.class, () -> resource.generate(request));
+        assertThrows(BadRequestException.class, () -> resource.generate(null, request));
         verifyNoInteractions(aiService, producer, consumer, eventProducer);
     }
 
@@ -154,7 +161,7 @@ class RecipeResourceTest {
         RecipeRequest request = request();
         when(restrictions.find("u1")).thenReturn(DietaryRestrictions.of(List.of(), List.of("beans")));
 
-        BadRequestException e = assertThrows(BadRequestException.class, () -> resource.generate(request));
+        BadRequestException e = assertThrows(BadRequestException.class, () -> resource.generate(null, request));
         assertEquals("ingredient beans conflicts with the restriction beans", e.getMessage());
         verifyNoInteractions(aiService, eventProducer);
     }
@@ -167,7 +174,7 @@ class RecipeResourceTest {
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
-        resource.generate(request);
+        resource.generate(null, request);
 
         assertEquals(List.of("sesame", "peanut"), request.allergies);
         assertEquals(List.of("pork"), request.avoid);
@@ -180,7 +187,7 @@ class RecipeResourceTest {
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
 
-        resource.generate(request);
+        resource.generate(null, request);
 
         assertEquals("u1", request.userId);
         verify(restrictions).find("u1");
@@ -188,7 +195,66 @@ class RecipeResourceTest {
 
     @Test
     void rejectsAMissingBody() {
-        assertThrows(BadRequestException.class, () -> resource.generate(null));
+        assertThrows(BadRequestException.class, () -> resource.generate(null, null));
         verifyNoInteractions(aiService);
+    }
+
+    // ---------- guests ----------
+
+    static final String GUEST = "11111111-2222-3333-4444-555555555555";
+
+    @Test
+    void guestsUseAFreeRecipeAndGetNoSavedProfile() {
+        when(identity.isAnonymous()).thenReturn(true);
+        RecipeRequest request = request();
+        when(aiService.generateRecipe(request)).thenReturn("recipe");
+        when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
+
+        assertEquals("recipe", resource.generate(GUEST, request).recipe());
+
+        assertNull(request.userId);
+        verify(guestQuota).use(GUEST);
+        verify(guestQuota, never()).giveBack(any());
+        verify(restrictions).find(null);
+    }
+
+    @Test
+    void guestsWithNoFreeRecipesLeftMustSignIn() {
+        when(identity.isAnonymous()).thenReturn(true);
+        doThrow(GuestRecipeQuota.signInRequired("Sign in")).when(guestQuota).use(GUEST);
+
+        WebApplicationException e = assertThrows(WebApplicationException.class,
+                () -> resource.generate(GUEST, request()));
+
+        assertEquals(401, e.getResponse().getStatus());
+        verifyNoInteractions(aiService, eventProducer);
+    }
+
+    @Test
+    void aFailedRecipeIsGivenBack() {
+        when(identity.isAnonymous()).thenReturn(true);
+        RecipeRequest request = request();
+        when(aiService.generateRecipe(request)).thenThrow(new IllegalStateException("model down"));
+
+        assertThrows(IllegalStateException.class, () -> resource.generate(GUEST, request));
+
+        verify(guestQuota).use(GUEST);
+        verify(guestQuota).giveBack(GUEST);
+    }
+
+    @Test
+    void invalidGuestRequestsDontUseAFreeRecipe() {
+        when(identity.isAnonymous()).thenReturn(true);
+        RecipeRequest request = request();
+        request.servings = 0;
+
+        assertThrows(BadRequestException.class, () -> resource.generate(GUEST, request));
+        verifyNoInteractions(guestQuota);
+    }
+
+    @Test
+    void signedInUsersHaveUnlimitedRecipes() {
+        assertEquals(GuestRecipeQuota.FreeRecipes.UNLIMITED, resource.freeRecipes(GUEST));
+        verifyNoInteractions(guestQuota);
     }
 }
