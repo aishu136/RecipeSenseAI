@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.recipe.GreetingResource;
 import org.recipe.agent.AutonomousRecipeState;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
@@ -168,10 +167,5 @@ class ResourcesTest {
 
         assertThrows(BadRequestException.class, () -> resource.plan(null));
         verifyNoInteractions(mealPlanService);
-    }
-
-    @Test
-    void helloEndpoint() {
-        assertEquals("Hello from Quarkus REST", new GreetingResource().hello());
     }
 }

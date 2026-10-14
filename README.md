@@ -94,7 +94,6 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
-| `GET /hello` | – | Health check |
 
 ### Dietary restrictions
 
