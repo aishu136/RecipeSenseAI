@@ -3,6 +3,7 @@ package org.recipe.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -21,7 +22,9 @@ import org.recipe.memory.UserProfileIndex.SimilarUser;
 import org.recipe.model.DietaryRestrictions;
 import org.recipe.service.UserRestrictionStore;
 
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.ForbiddenException;
 
 @ExtendWith(MockitoExtension.class)
 class UserProfileResourceTest {
@@ -32,6 +35,9 @@ class UserProfileResourceTest {
     @Mock
     UserProfileIndex profiles;
 
+    @Mock
+    SecurityIdentity identity;
+
     UserProfileResource resource;
 
     @BeforeEach
@@ -39,6 +45,9 @@ class UserProfileResourceTest {
         resource = new UserProfileResource();
         resource.restrictions = restrictions;
         resource.profiles = profiles;
+        resource.identity = identity;
+        // Signed in as u1
+        lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
     }
 
     @Test
@@ -94,6 +103,20 @@ class UserProfileResourceTest {
         assertThrows(BadRequestException.class, () -> resource.similar("u1", 0));
         assertThrows(BadRequestException.class, () -> resource.similar("u1", UserProfileResource.MAX_SIMILAR + 1));
         assertThrows(BadRequestException.class, () -> resource.restrictions(" "));
+        verifyNoInteractions(restrictions, profiles);
+    }
+
+    @Test
+    void usersCanOnlyReachTheirOwnProfile() {
+        DietaryRestrictions body = DietaryRestrictions.of(List.of("peanut"), List.of());
+
+        assertThrows(ForbiddenException.class, () -> resource.restrictions("u2"));
+        assertThrows(ForbiddenException.class, () -> resource.saveRestrictions("u2", body));
+        assertThrows(ForbiddenException.class, () -> resource.preferences("u2"));
+        assertThrows(ForbiddenException.class,
+                () -> resource.addPreference("u2", new UserProfileResource.PreferenceRequest("low sugar")));
+        assertThrows(ForbiddenException.class, () -> resource.deletePreference("u2", "p1"));
+        assertThrows(ForbiddenException.class, () -> resource.similar("u2", 5));
         verifyNoInteractions(restrictions, profiles);
     }
 }

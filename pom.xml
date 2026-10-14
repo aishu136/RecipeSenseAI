@@ -140,6 +140,12 @@
 			<artifactId>camel-quarkus-file</artifactId>
 		</dependency>
 
+		<!-- OIDC bearer tokens for the user profile endpoints -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-oidc</artifactId>
+		</dependency>
+
 		<!-- Health checks at /q/health; extensions such as Kafka and Redis add their own -->
 		<dependency>
 			<groupId>io.quarkus</groupId>

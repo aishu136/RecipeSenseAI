@@ -13,8 +13,13 @@ npm run build && npm start   # production
 | `/` Recipe | `POST /recipe/generate`, or `POST /recipe/stream` with "Stream live progress" |
 | `/meal-plan` | `POST /meal-plan` |
 | `/autonomous` Agent | `POST /autonomous/stream` |
+| `/profile` | `GET /me`, `/users/{userId}/restrictions`, `/preferences` and `/similar` (signed in) |
 
-`src/app/api/[...path]/route.ts` forwards `/api/*` to `BACKEND_URL` (default `http://localhost:8080`), streaming server-sent events through as they arrive.
+`src/app/api/[...path]/route.ts` forwards `/api/*` to `BACKEND_URL` (default `http://localhost:8080`), streaming server-sent events through as they arrive, with the signed-in user's access token.
+
+## Signing in
+
+`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and access token never reach the browser. The token lives in an httpOnly cookie until it expires. `src/lib/oidc.ts` has the shared settings and helpers.
 
 ## Styling
 

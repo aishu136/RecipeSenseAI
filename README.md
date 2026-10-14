@@ -56,6 +56,8 @@ Without it the app still works, but `/recipe/generate` waits `recipe.flink.timeo
 ./mvnw quarkus:dev
 ```
 
+Dev mode also starts Keycloak in Docker on port 8180, for signing in to the profile endpoints (see [Authentication](#authentication)). It has the users `alice` and `bob`, whose passwords are their names.
+
 **4. Try it**
 
 ```shell script
@@ -78,7 +80,13 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans and the autonomous agent. The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. The user id you enter is remembered in the browser, so recipes you generate personalise your meal plans.
+For signing in against dev mode's Keycloak, the frontend needs the client secret Keycloak was set up with:
+
+```shell script
+OIDC_CLIENT_SECRET=secret npm run dev
+```
+
+Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans, the autonomous agent, and your dietary profile (after signing in). The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. The user id you enter is remembered in the browser, so recipes you generate personalise your meal plans.
 
 ## API
 
@@ -89,10 +97,13 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
 | `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days", "userId"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
+| `GET /me` | – | `{userId}`: the signed-in user's id, i.e. their access token's principal. Needs a token |
 | `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
 | `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=5` | – | Other users whose saved restrictions are most similar: `[{userId, allergies, avoid, similarity}]`, `limit` 1–20 |
+
+The `/users/{userId}/...` endpoints need a token too, and only for the user's own id (see [Authentication](#authentication)).
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
 
@@ -126,6 +137,14 @@ A user's profile (the frontend's Profile page, or `/users/{userId}/...`) holds:
 - **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
 
 Meal plans use the saved restrictions but not the free-text preferences, since Spoonacular searches can't take them.
+
+### Authentication
+
+`/me` and the `/users/{userId}/...` profile endpoints need an OIDC access token (`Authorization: Bearer ...`), checked by `quarkus-oidc` against the provider at `OIDC_AUTH_SERVER_URL` (AWS Cognito, Keycloak, or any other OIDC provider). `{userId}` must be the token's principal, so users can only read and change their own profile: others get 403, and requests without a valid token 401. The principal is the token's `upn`, `preferred_username` or `sub` claim, whichever it has first; set `QUARKUS_OIDC_TOKEN_PRINCIPAL_CLAIM` to use another (e.g. `username` for Cognito access tokens).
+
+The frontend signs users in with the authorization code flow (with PKCE) in its own server: `/auth/login` redirects to the provider, `/auth/callback` swaps the code for an access token and keeps it in an httpOnly cookie, and the `/api` proxy sends it to the backend. `/auth/logout` deletes the cookie, and ends the provider's session too when it advertises an `end_session_endpoint`. Tokens aren't refreshed: when one expires, sign in again. Register `{frontend URL}/auth/callback` as a redirect URI for the client.
+
+The other endpoints don't need a token. Recipe and meal plan requests still take a `userId` in the body and apply that user's saved restrictions and preferences without checking who sends it, so someone who knows a user id can learn about their restrictions indirectly, e.g. from a 400 for an ingredient that conflicts with one.
 
 ### Autonomous agent graph
 
@@ -219,6 +238,8 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama in dev mode |
 | `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Users' free-text preferences and a searchable copy of their restrictions |
 | `REDIS_URL` | `redis://localhost:6379` | Users' saved dietary restrictions |
+| `OIDC_AUTH_SERVER_URL` | – (dev mode starts Keycloak) | OIDC provider for the profile endpoints, e.g. `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AbCdEf` or `https://keycloak.example.com/realms/recipetool`. Required by the packaged app |
+| `OIDC_CLIENT_ID` | `recipetool` | The OIDC client the tokens are issued to |
 | `SPOONACULAR_API_KEY` | none | Spoonacular recipe API key for meal plans ([free tier](https://spoonacular.com/food-api/console#Dashboard)); without it `/meal-plan` returns 503 |
 
 Camel send retries (`application.properties`):

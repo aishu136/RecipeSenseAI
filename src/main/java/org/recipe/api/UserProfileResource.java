@@ -8,11 +8,14 @@ import org.recipe.memory.UserProfileIndex.SimilarUser;
 import org.recipe.model.DietaryRestrictions;
 import org.recipe.service.UserRestrictionStore;
 
+import io.quarkus.security.Authenticated;
+import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
@@ -26,7 +29,11 @@ import jakarta.ws.rs.core.MediaType;
  * A user's dietary profile: restrictions saved in Redis (and copied to
  * OpenSearch for similarity search), and free-text preferences in OpenSearch.
  * Both apply to every recipe request with the user's id.
+ *
+ * Callers need an OIDC access token, and may only reach their own profile:
+ * {userId} must be the token's principal.
  */
+@Authenticated
 @Path("/users/{userId}")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
@@ -42,6 +49,9 @@ public class UserProfileResource {
 
     @Inject
     UserProfileIndex profiles;
+
+    @Inject
+    SecurityIdentity identity;
 
     @GET
     @Path("/restrictions")
@@ -98,9 +108,15 @@ public class UserProfileResource {
         return profiles.similarUsers(id, restrictions.find(id), limit);
     }
 
-    private static String requireUserId(String userId) {
+    /**
+     * @throws ForbiddenException (HTTP 403) unless userId is the caller's own
+     */
+    private String requireUserId(String userId) {
         if (userId == null || userId.isBlank()) {
             throw new BadRequestException("userId is required");
+        }
+        if (!userId.trim().equals(identity.getPrincipal().getName())) {
+            throw new ForbiddenException("You can only access your own profile");
         }
         return userId.trim();
     }

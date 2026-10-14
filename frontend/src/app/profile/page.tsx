@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button, Card, ErrorBox, Field, Input, PageHeader, Textarea } from "@/components/ui";
 import {
+  ApiError,
   deleteResource,
   getJson,
   postJson,
@@ -22,6 +23,12 @@ type Profile = {
   similar: SimilarUser[];
 };
 
+type State =
+  | { status: "loading" }
+  | { status: "signedOut" }
+  | { status: "error"; message: string }
+  | { status: "ready"; profile: Profile };
+
 async function loadProfile(userId: string): Promise<Profile> {
   const [restrictions, preferences, similar] = await Promise.all([
     getJson<DietaryRestrictions>(userPath(userId, "restrictions")),
@@ -32,40 +39,38 @@ async function loadProfile(userId: string): Promise<Profile> {
 }
 
 function message(err: unknown): string {
+  if (err instanceof ApiError && err.status === 401) return "Your session has expired. Sign in again.";
   return err instanceof Error ? err.message : String(err);
 }
 
-export default function ProfilePage() {
-  const [userId, setUserId] = useUserId();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const linkButton =
+  "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong";
 
-  // Loads the profile once the user id stops changing
+export default function ProfilePage() {
+  const [, setUserId] = useUserId();
+  const [state, setState] = useState<State>({ status: "loading" });
+
+  // The profile of whoever is signed in (the /api proxy sends their token)
   useEffect(() => {
-    const id = userId.trim();
-    if (!id) return;
     let current = true;
-    const timer = setTimeout(async () => {
+    (async () => {
       try {
-        const loaded = await loadProfile(id);
-        if (current) {
-          setProfile(loaded);
-          setError(null);
-        }
+        const { userId } = await getJson<{ userId: string }>("/me");
+        const profile = await loadProfile(userId);
+        if (!current) return;
+        // Recipes and meal plans use the same id, so they get these restrictions
+        setUserId(userId);
+        setState({ status: "ready", profile });
       } catch (err) {
-        if (current) {
-          setProfile(null);
-          setError(message(err));
-        }
+        if (!current) return;
+        const signedOut = err instanceof ApiError && err.status === 401;
+        setState(signedOut ? { status: "signedOut" } : { status: "error", message: message(err) });
       }
-    }, 400);
+    })();
     return () => {
       current = false;
-      clearTimeout(timer);
     };
-  }, [userId]);
-
-  const id = userId.trim();
+  }, [setUserId]);
 
   return (
     <>
@@ -74,37 +79,52 @@ export default function ProfilePage() {
         recipes they&apos;re relevant to.
       </PageHeader>
 
-      <Card className="mb-6 max-w-sm">
-        <Field label="User id">
-          <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="u1" />
-        </Field>
-      </Card>
+      {state.status === "loading" && <Card className="text-sm text-muted">Loading your profile…</Card>}
 
-      {error && (
-        <div className="mb-6">
-          <ErrorBox message={error} />
-        </div>
+      {state.status === "signedOut" && (
+        <Card className="flex max-w-md flex-col items-start gap-3">
+          <p className="text-sm text-muted">Sign in to see and edit your dietary profile.</p>
+          <a href="/auth/login?returnTo=/profile" className={linkButton}>
+            Sign in
+          </a>
+        </Card>
       )}
 
-      {/* Only the loaded user's profile, never a previous one under the new id */}
-      {id && profile?.userId === id && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <RestrictionsCard
-            key={`${id}-restrictions`}
-            userId={id}
-            saved={profile.restrictions}
-            onSaved={async () => setProfile(await loadProfile(id))}
-          />
-          <PreferencesCard
-            key={`${id}-preferences`}
-            userId={id}
-            preferences={profile.preferences}
-            onChange={(preferences) => setProfile({ ...profile, preferences })}
-          />
-          <SimilarUsersCard similar={profile.similar} hasRestrictions={profile.restrictions.allergies.length + profile.restrictions.avoid.length > 0} />
-        </div>
+      {state.status === "error" && <ErrorBox message={state.message} />}
+
+      {state.status === "ready" && (
+        <ProfileCards profile={state.profile} onChange={(profile) => setState({ status: "ready", profile })} />
       )}
-      {!id && <Card className="text-sm text-muted">Enter a user id to see and edit its profile.</Card>}
+    </>
+  );
+}
+
+function ProfileCards({ profile, onChange }: { profile: Profile; onChange: (profile: Profile) => void }) {
+  const { userId } = profile;
+  return (
+    <>
+      <p className="mb-6 text-sm text-muted">
+        Signed in as <span className="font-medium text-foreground">{userId}</span> ·{" "}
+        <a href="/auth/logout" className="font-medium text-accent hover:underline">
+          Sign out
+        </a>
+      </p>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <RestrictionsCard
+          userId={userId}
+          saved={profile.restrictions}
+          onSaved={async () => onChange(await loadProfile(userId))}
+        />
+        <PreferencesCard
+          userId={userId}
+          preferences={profile.preferences}
+          onChange={(preferences) => onChange({ ...profile, preferences })}
+        />
+        <SimilarUsersCard
+          similar={profile.similar}
+          hasRestrictions={profile.restrictions.allergies.length + profile.restrictions.avoid.length > 0}
+        />
+      </div>
     </>
   );
 }

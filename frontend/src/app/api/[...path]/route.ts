@@ -1,8 +1,11 @@
 // Forwards /api/* to the Quarkus backend, so the browser never calls it
 // directly (no CORS setup needed) and server-sent events stream through.
+import type { NextRequest } from "next/server";
+import { TOKEN_COOKIE } from "@/lib/oidc";
+
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8080";
 
-async function forward(request: Request, ctx: RouteContext<"/api/[...path]">) {
+async function forward(request: NextRequest, ctx: RouteContext<"/api/[...path]">) {
   const { path } = await ctx.params;
   const url = new URL(request.url);
   const target = `${BACKEND_URL}/${path.map(encodeURIComponent).join("/")}${url.search}`;
@@ -12,6 +15,9 @@ async function forward(request: Request, ctx: RouteContext<"/api/[...path]">) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  // Signed-in users' access token, from the httpOnly cookie /auth/callback sets
+  const token = request.cookies.get(TOKEN_COOKIE)?.value;
+  if (token) headers.set("authorization", `Bearer ${token}`);
 
   let response: Response;
   try {
