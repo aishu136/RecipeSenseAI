@@ -2,15 +2,18 @@ import { expect, test } from "@playwright/test";
 import { fakeApi, json, signedInAs, text } from "./fakeApi";
 
 test.describe("signed-in users", () => {
-  test("see who they are, and no free-recipe limit", async ({ page }) => {
-    const calls = await fakeApi(page, signedInAs("alice"));
+  test("see who they are, and no free-recipe limit with a subscription", async ({ page }) => {
+    await fakeApi(page, {
+      ...signedInAs("alice"),
+      "GET /recipe/free-recipes": (route) => json(route, { limit: null, remaining: null }),
+    });
     await page.goto("/");
 
     const banner = page.getByRole("banner");
     await expect(banner).toContainText("alice");
     await expect(banner.getByRole("link", { name: "Sign out" })).toHaveAttribute("href", "/auth/logout");
+    await expect(page.getByRole("button", { name: "Generate" })).toBeVisible();
     await expect(page.getByText(/free recipes/)).toHaveCount(0);
-    expect(calls).not.toContain("GET /recipe/free-recipes");
   });
 
   test("see the backend's reason when a recipe is refused", async ({ page }) => {

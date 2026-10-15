@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { ApiError, getJson } from "./api";
-import { askToSignIn } from "./signInDialog";
+import { askToSignIn, askToSubscribe } from "./signInDialog";
 
 export type CurrentUser = { status: "loading" } | { status: "signedOut" } | { status: "signedIn"; userId: string };
 
@@ -58,4 +58,17 @@ export function needSignIn(err: unknown, fallback: string) {
 // The signed-in user, shared by every component that asks
 export function useCurrentUser(): CurrentUser {
   return useSyncExternalStore(subscribe, () => current, () => LOADING);
+}
+
+export function isPaymentRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 402;
+}
+
+/**
+ * For a request the backend refused with 402: the user needs a subscription
+ * (free recipes used up, or a subscriber-only feature), so pops up the upgrade
+ * dialog with the backend's reason.
+ */
+export function needSubscription(err: unknown, fallback: string) {
+  askToSubscribe(err instanceof ApiError && !/^402\b/.test(err.message) ? err.message : fallback);
 }

@@ -40,9 +40,18 @@ public class RecipeAIService {
                 ingredients,
                 request.getServings(),
                 request.restrictions().describe(),
-                describePreferences(profiles.relevantPreferences(
-                        request.getUserId(), request.toPrompt(), PREFERENCES_PER_PROMPT)),
+                preferencesFor(profiles, request),
                 context);
+    }
+
+    // For prompts: the user's most relevant preferences when the recipe is
+    // personalised (a subscription feature), or "" when it isn't
+    static String preferencesFor(UserProfileIndex profiles, RecipeRequest request) {
+        if (!request.personalised) {
+            return "";
+        }
+        return describePreferences(profiles.relevantPreferences(
+                request.getUserId(), request.toPrompt(), PREFERENCES_PER_PROMPT));
     }
 
     // For prompts: the user's preferences, or "" for none

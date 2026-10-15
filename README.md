@@ -56,7 +56,7 @@ Without it the app still works, but `/recipe/generate` waits `recipe.flink.timeo
 ./mvnw quarkus:dev
 ```
 
-Dev mode also starts Keycloak in Docker on port 8180, for signing in (see [Authentication](#authentication)): guests get 4 free recipes, and meal plans and profiles need a signed-in user. It has the users `alice` and `bob`, whose passwords are their names.
+Dev mode also starts Keycloak in Docker on port 8180, for signing in (see [Authentication](#authentication)): everyone gets 4 free recipes, then needs a subscription (see [Subscriptions](#subscriptions-stripe)); profiles need a signed-in user. It has the users `alice` and `bob`, whose passwords are their names.
 
 **4. Try it**
 
@@ -106,19 +106,25 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
-| `GET /recipe/free-recipes` | – | `{limit, remaining}`: a guest's free recipes; both `null` when signed in (unlimited) |
+| `GET /recipe/free-recipes` | – | `{limit, remaining}`: the caller's free recipes (as a guest, or signed in without a subscription); both `null` with a subscription (unlimited) |
 | `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `GET /me` | – | `{userId}`: the signed-in user's id, i.e. their access token's principal. Needs a token |
 | `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
 | `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=10` | – | `{users, shared: [{restriction, type, users}]}`: how many of the (up to `limit`, 1–20) users with the most similar saved restrictions there are, and the restrictions (`type` `allergy` or `avoid`) at least two of them share. It never names them or shows one user's restrictions |
+| `GET /billing/plans` | – | `{available, trialDays, plans: [{plan, amount, currency, interval}]}`; `available` is false until Stripe is set up. No token needed |
+| `GET /billing/subscription` | – | `{available, entitled, trialAvailable, hasBillingAccount, status, plan, trialEnd, currentPeriodEnd, cancelAtPeriodEnd}` (dates in epoch seconds) |
+| `POST /billing/checkout` | `{"plan": "monthly"\|"yearly"}` plus an `Idempotency-Key` header (a UUID) | `{url, expiresAt}`: a Stripe Checkout page, with the free trial if the user hasn't had it. 409 if they already have a subscription |
+| `POST /billing/portal` | – | `{url}`: Stripe's billing portal, to change plan, update the card or cancel |
+| `POST /billing/sync` | – | Refreshes the subscription from Stripe now; same as `GET /billing/subscription` |
+| `POST /billing/webhook` | Stripe's event | For Stripe only (signed with `Stripe-Signature`) |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
 
-`/meal-plan`, `/me` and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id; `/recipe/generate` and `/recipe/stream` take one too, or give guests a few free recipes (see [Authentication](#authentication)). Recipes and meal plans are always made for the signed-in user.
+`/meal-plan`, `/me`, `/billing/...` (except plans and the webhook) and `/users/{userId}/...` need an access token, and `/users/{userId}/...` only for the user's own id; `/recipe/generate` and `/recipe/stream` take one too, or give guests a few free recipes (see [Authentication](#authentication)). Meal plans need a subscription (see [Subscriptions](#subscriptions-stripe)). Recipes and meal plans are always made for the signed-in user.
 
-Errors come back with a plain-text body saying what went wrong, e.g. a 400 with `ingredient peanut butter conflicts with the restriction peanut`, or a guest's 401 with `You've used your 4 free recipes. Sign in to keep generating recipes.`. Errors without a specific message (e.g. an unknown path's 404) have an empty body.
+Errors come back with a plain-text body saying what went wrong, e.g. a 400 with `ingredient peanut butter conflicts with the restriction peanut`, a guest's 401 with `You've used your 4 free recipes. Sign in to keep generating recipes.`, a signed-in user's 402 offering the free trial, or a 429 with `Too many requests. Try again in 20 seconds.`. Errors without a specific message (e.g. an unknown path's 404) have an empty body.
 
 ### Health checks
 
@@ -157,9 +163,55 @@ Meal plans use the saved restrictions but not the free-text preferences, since S
 
 The frontend signs users in with the authorization code flow (with PKCE) in its own server: `/auth/login` redirects to the provider, `/auth/callback` swaps the code for an access token, a refresh token and an ID token and keeps them in httpOnly cookies, and the `/api` proxy sends the access token to the backend. The access token cookie expires 30 seconds before the token does; the proxy then uses the refresh token to get new tokens before forwarding the request, and also refreshes and retries once if the backend rejects a token anyway. Parallel requests share one refresh, so providers that rotate refresh tokens work. When the refresh token no longer works (e.g. the provider's session ended), the token cookies are deleted and the pages ask to sign in again. `/auth/logout` deletes them, and ends the provider's session too when it advertises an `end_session_endpoint`, passing the ID token as `id_token_hint` so the provider signs the user out straight away and returns to the app (without it, Keycloak first asks "Do you want to log out?"). Register `{frontend URL}/*` as a post-logout redirect URI for the client too. Register `{frontend URL}/auth/callback` as a redirect URI for the client.
 
-`/recipe/generate` and `/recipe/stream` also work without a token, for guests: each guest gets 4 free recipes (`recipe.guest.free-recipes`), counted in Redis by the `X-Guest-Id` header (a random UUID the frontend keeps in a cookie) for 30 days (`recipe.guest.window`). Guests have no saved restrictions or preferences, but the `allergies` and `avoid` in their requests still apply. Requests that fail (a bad request, or the LLM erroring) don't use up a free recipe. After the last one, they get 401 with a message saying so, which the frontend shows in a sign-in popup; it shows the same popup when a guest tries to make a meal plan. Clearing cookies starts a new allowance, so this nudges people to sign in rather than stopping a determined caller; rate-limit at the gateway if that matters.
+`/recipe/generate` and `/recipe/stream` also work without a token, for guests: each guest gets 4 free recipes (`recipe.free-recipes`), counted in Redis by the `X-Guest-Id` header (a random UUID the frontend keeps in a cookie) for 30 days (`recipe.guest.window`). Guests have no saved restrictions or preferences, but the `allergies` and `avoid` in their requests still apply. Requests that fail (a bad request, or the LLM erroring) don't use up a free recipe. After the last one, they get 401 with a message saying so, which the frontend shows in a sign-in popup; it shows the same popup when a guest tries to make a meal plan. Clearing cookies starts a new allowance, so this nudges people to sign in rather than stopping a determined caller; the [rate limits](#rate-limits) cap how fast anyone can go.
 
 `/autonomous`, `/mcp` and `/q/health` don't need a token; they don't use any user's data.
+
+### Subscriptions (Stripe)
+
+Recipes are free up to a point, then need a subscription, through [Stripe](https://stripe.com):
+
+- **Free:** 4 recipes (`recipe.free-recipes`) per guest, and 4 per signed-in user without a subscription. They're made from the request alone; signed-in users' saved allergies still apply. After that, guests are asked to sign in (401), and users to start the free trial or subscribe (402, which the frontend shows as an upgrade popup).
+- **Subscribers** (trialing or paid) get unlimited recipes personalised with their saved preferences and diet, and meal plans (402 without a subscription).
+- **Trial:** 7 days (`stripe.trial-days`), once per user. Checkout takes a card, so the trial turns into the monthly or yearly plan the user picked unless they cancel before it ends; after the trial, checkout starts the plan straight away.
+- **Plans:** a monthly and a yearly recurring price in Stripe; their prices are shown from Stripe.
+
+Users subscribe on Stripe Checkout (`POST /billing/checkout`) and manage their subscription (change plan, update the card, cancel) in Stripe's billing portal (`POST /billing/portal`). Stripe tells the backend about every change through webhooks (`POST /billing/webhook`): each one's `Stripe-Signature` is checked against `STRIPE_WEBHOOK_SECRET`, and the subscription is saved in Redis. A subscription counts while it's `trialing`, `active` or `past_due` (Stripe is retrying a failed payment); `canceled`, `unpaid` and the others don't.
+
+**No duplicate charges:**
+
+- Every Stripe call that creates something has an idempotency key, so a retried request gets the original result instead of a second customer or checkout. The checkout's key comes from the client's `Idempotency-Key` header: the frontend sends one UUID per attempt, and the same one when retrying it.
+- A checkout the user already opened for the plan is handed back for 30 minutes instead of a new one being made.
+- A per-user lock in Redis stops parallel checkout requests from making two (409).
+- Users who already have a subscription can't start another checkout (409).
+- Webhook events are handled once: each event id is remembered in Redis for 7 days, so Stripe's retries are acknowledged and skipped. An event whose handling fails is forgotten again, so Stripe's next retry handles it.
+- Events can arrive out of order: each saved subscription keeps the time of the event it came from, and an older event never overwrites it.
+- The frontend disables the plan buttons as soon as one is clicked.
+
+**Caching:** checking a subscription never calls Stripe. Redis holds each user's subscription, kept current by the webhooks, and each instance caches it in memory for 10 seconds (`quarkus.cache.caffeine.subscriptions`) so busy users don't hit Redis on every request; webhooks clear the cache on the instance that receives them. Stripe's prices are cached for an hour (`quarkus.cache.caffeine.stripe-prices`). Back from checkout, the frontend calls `POST /billing/sync` so the new subscription shows even before its webhook arrives.
+
+**Setting it up** (Stripe's test mode needs no real money):
+
+1. In Stripe, create a product with two recurring prices, monthly and yearly, and set `STRIPE_PRICE_MONTHLY` and `STRIPE_PRICE_YEARLY` to their ids (`price_...`), and `STRIPE_SECRET_KEY` to the secret key (`sk_test_...`).
+2. Add a webhook endpoint for `https://<backend>/billing/webhook` (the backend itself, not the frontend's `/api` proxy) with the events `checkout.session.completed` and `customer.subscription.created`, `.updated`, `.deleted`, `.paused` and `.resumed`, and set `STRIPE_WEBHOOK_SECRET` to its signing secret (`whsec_...`). Locally, `stripe listen --forward-to localhost:8080/billing/webhook` forwards them and prints the secret.
+3. Turn on Stripe's customer portal (Settings → Billing → Customer portal), letting customers switch between the two prices and cancel.
+4. Set `APP_URL` to the frontend's URL, where Stripe sends users back.
+
+Until the key and both prices are set, subscriptions are off: signed-in users get unlimited personalised recipes and meal plans, and only guests have the free-recipe limit. Pay with Stripe's test card `4242 4242 4242 4242` in test mode.
+
+### Rate limits
+
+Each caller (the signed-in user, else the guest id, else the IP address) may make this many requests per minute, counted in Redis so the limits hold across instances; past it they get 429 with a `Retry-After` header. If Redis is down, requests are let through (the free-recipe and subscription checks still fail closed).
+
+| Endpoints | Per minute | Setting |
+|---|---|---|
+| `POST /recipe/generate`, `/recipe/stream` | 10 | `recipe.rate-limit.recipes` |
+| `POST /meal-plan` | 10 | `recipe.rate-limit.meal-plans` |
+| `POST /autonomous`, `/autonomous/stream` | 5 | `recipe.rate-limit.agent` |
+| `POST /billing/checkout`, `/portal`, `/sync` | 10 | `recipe.rate-limit.billing` |
+| Everything else, except `/q/...` and `/billing/webhook` | 120 | `recipe.rate-limit.other` |
+
+The window is `recipe.rate-limit.window` (60s); `recipe.rate-limit.enabled=false` turns them off.
 
 ### Autonomous agent graph
 
@@ -255,6 +307,10 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `REDIS_URL` | `redis://localhost:6379` | Users' saved dietary restrictions |
 | `OIDC_AUTH_SERVER_URL` | – (dev mode starts Keycloak) | OIDC provider for the profile endpoints, e.g. `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AbCdEf` or `https://keycloak.example.com/realms/recipetool`. Required by the packaged app |
 | `OIDC_CLIENT_ID` | `recipetool` | The OIDC client the tokens are issued to |
+| `STRIPE_SECRET_KEY` | – (subscriptions off) | Stripe secret key, `sk_test_...` or `sk_live_...` |
+| `STRIPE_WEBHOOK_SECRET` | – | Signing secret of the Stripe webhook endpoint, `whsec_...` |
+| `STRIPE_PRICE_MONTHLY` / `STRIPE_PRICE_YEARLY` | – | Stripe price ids of the plans, `price_...` |
+| `APP_URL` | `http://localhost:3000` | The frontend, where Stripe sends users back after checkout and the billing portal |
 | `SPOONACULAR_API_KEY` | none | Spoonacular recipe API key for meal plans ([free tier](https://spoonacular.com/food-api/console#Dashboard)); without it `/meal-plan` returns 503 |
 
 Camel send retries (`application.properties`):

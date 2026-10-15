@@ -48,8 +48,7 @@ public class RecipeAgentService {
                 String.join(", ", request.getIngredients()),
                 request.getServings(),
                 request.restrictions().describe(),
-                RecipeAIService.describePreferences(profiles.relevantPreferences(
-                        request.getUserId(), request.toPrompt(), RecipeAIService.PREFERENCES_PER_PROMPT)),
+                RecipeAIService.preferencesFor(profiles, request),
                 context
         );
 

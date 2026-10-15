@@ -8,10 +8,12 @@ const PORT = 3100;
 
 export default defineConfig({
   testDir: "./e2e/ui",
-  timeout: 30_000,
-  // The dev server compiles each page on its first visit, which can take seconds
+  // The dev server compiles each page on its first visit, which can take a while
+  timeout: 60_000,
   expect: { timeout: 15_000 },
   fullyParallel: true,
+  // More browsers at once mostly make the dev server compile pages for all of them at once
+  workers: 2,
   reporter: "list",
   use: {
     baseURL: `http://localhost:${PORT}`,

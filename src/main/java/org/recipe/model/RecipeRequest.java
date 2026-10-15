@@ -3,6 +3,8 @@ package org.recipe.model;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import jakarta.ws.rs.BadRequestException;
 
 
@@ -17,6 +19,9 @@ public class RecipeRequest {
     public List<String> allergies;
     public List<String> avoid;
     public String userId;
+    // Set by the server, never the client: whether to use the user's saved preferences (a subscription feature)
+    @JsonIgnore
+    public boolean personalised;
 
     public String getDiet() {
         return diet;

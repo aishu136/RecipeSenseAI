@@ -84,7 +84,7 @@ function send(
   guestId: string,
 ) {
   const headers = new Headers();
-  for (const name of ["content-type", "accept"]) {
+  for (const name of ["content-type", "accept", "idempotency-key"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }

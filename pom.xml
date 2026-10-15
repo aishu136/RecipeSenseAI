@@ -140,6 +140,19 @@
 			<artifactId>camel-quarkus-file</artifactId>
 		</dependency>
 
+		<!-- Stripe: subscriptions, checkout and webhooks -->
+		<dependency>
+			<groupId>com.stripe</groupId>
+			<artifactId>stripe-java</artifactId>
+			<version>33.4.2</version>
+		</dependency>
+
+		<!-- In-process caches (subscription status, Stripe prices) -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-cache</artifactId>
+		</dependency>
+
 		<!-- OIDC bearer tokens for the user profile endpoints -->
 		<dependency>
 			<groupId>io.quarkus</groupId>

@@ -21,7 +21,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
 // Recipes are made for the signed-in user (with their OIDC access token), or
-// for a guest, who gets a few free recipes before having to sign in
+// for a guest. Without a subscription, a few recipes are free (RecipeAllowance).
 @Path("/recipe")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
@@ -46,7 +46,7 @@ public class RecipeResource {
     SecurityIdentity identity;
 
     @Inject
-    GuestRecipeQuota guestQuota;
+    RecipeAllowance allowance;
 
     @ConfigProperty(name = "recipe.flink.timeout", defaultValue = "5s")
     Duration flinkTimeout;
@@ -55,7 +55,7 @@ public class RecipeResource {
     // blocking LLM and Kafka waits below don't stall the event loop.
     @POST
     @Path("/generate")
-    public ProcessedRecipe generate(@HeaderParam(GuestRecipeQuota.HEADER) String guestId, RecipeRequest request) {
+    public ProcessedRecipe generate(@HeaderParam(FreeRecipeQuota.HEADER) String guestId, RecipeRequest request) {
 
         if (request == null) {
             throw new BadRequestException("request body is required");
@@ -67,23 +67,22 @@ public class RecipeResource {
         request.addRestrictions(restrictions.find(request.getUserId()));
         request.validate();
 
-        if (request.userId != null) {
-            return generateFor(request);
-        }
-        guestQuota.use(guestId);
+        // Unlimited and personalised with a subscription; otherwise uses up a free recipe
+        RecipeAllowance.Access access = allowance.open(request.userId, guestId);
+        request.personalised = access.personalised();
         try {
             return generateFor(request);
         } catch (RuntimeException e) {
-            guestQuota.giveBack(guestId);
+            access.giveBack().run();
             throw e;
         }
     }
 
-    // How many free recipes the caller has left; unlimited once signed in
+    // How many free recipes the caller has left; unlimited with a subscription
     @GET
     @Path("/free-recipes")
-    public GuestRecipeQuota.FreeRecipes freeRecipes(@HeaderParam(GuestRecipeQuota.HEADER) String guestId) {
-        return identity.isAnonymous() ? guestQuota.freeRecipes(guestId) : GuestRecipeQuota.FreeRecipes.UNLIMITED;
+    public FreeRecipeQuota.FreeRecipes freeRecipes(@HeaderParam(FreeRecipeQuota.HEADER) String guestId) {
+        return allowance.freeRecipes(identity.isAnonymous() ? null : identity.getPrincipal().getName(), guestId);
     }
 
     private ProcessedRecipe generateFor(RecipeRequest request) {

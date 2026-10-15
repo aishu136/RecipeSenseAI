@@ -5,7 +5,13 @@ import { useState } from "react";
 import { Button, Card, ErrorBox, Field, Input, PageHeader } from "@/components/ui";
 import { ApiError, postJson, splitList, type Meal, type MealPlan, type MealPlanRequest } from "@/lib/api";
 import { askToSignIn } from "@/lib/signInDialog";
-import { isUnauthorized, needSignIn, useCurrentUser } from "@/lib/useCurrentUser";
+import {
+  isPaymentRequired,
+  isUnauthorized,
+  needSignIn,
+  needSubscription,
+  useCurrentUser,
+} from "@/lib/useCurrentUser";
 
 // Friendlier messages for the errors POST /meal-plan documents
 const ERRORS: Record<number, string> = {
@@ -50,6 +56,7 @@ export default function MealPlanPage() {
     } catch (err) {
       setPlan(null);
       if (isUnauthorized(err)) return needSignIn(err, SIGN_IN_REASON);
+      if (isPaymentRequired(err)) return needSubscription(err, "Meal plans come with a subscription.");
       setError(err instanceof ApiError ? (ERRORS[err.status] ?? err.message) : String(err));
     } finally {
       setLoading(false);

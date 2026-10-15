@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import { SignInDialog } from "@/components/SignInDialog";
+import { UpgradeDialog } from "@/components/UpgradeDialog";
 import "./theme.scss";
 import "./globals.css";
 
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
         <SignInDialog />
+        <UpgradeDialog />
       </body>
     </html>
   );

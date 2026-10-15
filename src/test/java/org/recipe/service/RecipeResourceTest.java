@@ -1,13 +1,14 @@
 package org.recipe.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.recipe.billing.Subscriptions;
 import org.recipe.kafka.RecipeEventProducer;
 import org.recipe.model.DietaryRestrictions;
 import org.recipe.model.ProcessedRecipe;
@@ -57,7 +59,10 @@ class RecipeResourceTest {
     SecurityIdentity identity;
 
     @Mock
-    GuestRecipeQuota guestQuota;
+    RecipeAllowance allowance;
+
+    @Mock
+    Runnable giveBack;
 
     RecipeResource resource;
 
@@ -71,9 +76,10 @@ class RecipeResourceTest {
         resource.flinkTimeout = Duration.ofSeconds(2);
         resource.restrictions = restrictions;
         resource.identity = identity;
-        resource.guestQuota = guestQuota;
-        // Signed in as u1
+        resource.allowance = allowance;
+        // Signed in as u1, with a subscription
         lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
+        lenient().when(allowance.open(any(), any())).thenReturn(new RecipeAllowance.Access(true, giveBack));
         lenient().when(restrictions.find(any())).thenReturn(DietaryRestrictions.NONE);
     }
 
@@ -199,13 +205,27 @@ class RecipeResourceTest {
         verifyNoInteractions(aiService);
     }
 
-    // ---------- guests ----------
+    // ---------- who may have a recipe ----------
 
     static final String GUEST = "11111111-2222-3333-4444-555555555555";
 
     @Test
+    void subscribersGetPersonalisedRecipes() {
+        RecipeRequest request = request();
+        when(aiService.generateRecipe(request)).thenReturn("recipe");
+        when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
+
+        resource.generate(GUEST, request);
+
+        verify(allowance).open("u1", GUEST);
+        assertTrue(request.personalised);
+        verify(giveBack, never()).run();
+    }
+
+    @Test
     void guestsUseAFreeRecipeAndGetNoSavedProfile() {
         when(identity.isAnonymous()).thenReturn(true);
+        when(allowance.open(null, GUEST)).thenReturn(new RecipeAllowance.Access(false, giveBack));
         RecipeRequest request = request();
         when(aiService.generateRecipe(request)).thenReturn("recipe");
         when(consumer.await(anyString(), any())).thenReturn(Optional.empty());
@@ -213,48 +233,45 @@ class RecipeResourceTest {
         assertEquals("recipe", resource.generate(GUEST, request).recipe());
 
         assertNull(request.userId);
-        verify(guestQuota).use(GUEST);
-        verify(guestQuota, never()).giveBack(any());
+        assertFalse(request.personalised);
         verify(restrictions).find(null);
+        verify(giveBack, never()).run();
     }
 
     @Test
-    void guestsWithNoFreeRecipesLeftMustSignIn() {
-        when(identity.isAnonymous()).thenReturn(true);
-        doThrow(GuestRecipeQuota.signInRequired("Sign in")).when(guestQuota).use(GUEST);
+    void noRecipeOnceTheFreeOnesAreUsedUp() {
+        when(allowance.open("u1", GUEST)).thenThrow(Subscriptions.paymentRequired("Start your free trial"));
 
         WebApplicationException e = assertThrows(WebApplicationException.class,
                 () -> resource.generate(GUEST, request()));
 
-        assertEquals(401, e.getResponse().getStatus());
+        assertEquals(402, e.getResponse().getStatus());
         verifyNoInteractions(aiService, eventProducer);
     }
 
     @Test
     void aFailedRecipeIsGivenBack() {
-        when(identity.isAnonymous()).thenReturn(true);
         RecipeRequest request = request();
         when(aiService.generateRecipe(request)).thenThrow(new IllegalStateException("model down"));
 
         assertThrows(IllegalStateException.class, () -> resource.generate(GUEST, request));
 
-        verify(guestQuota).use(GUEST);
-        verify(guestQuota).giveBack(GUEST);
+        verify(giveBack).run();
     }
 
     @Test
-    void invalidGuestRequestsDontUseAFreeRecipe() {
-        when(identity.isAnonymous()).thenReturn(true);
+    void invalidRequestsDontUseAFreeRecipe() {
         RecipeRequest request = request();
         request.servings = 0;
 
         assertThrows(BadRequestException.class, () -> resource.generate(GUEST, request));
-        verifyNoInteractions(guestQuota);
+        verifyNoInteractions(allowance);
     }
 
     @Test
-    void signedInUsersHaveUnlimitedRecipes() {
-        assertEquals(GuestRecipeQuota.FreeRecipes.UNLIMITED, resource.freeRecipes(GUEST));
-        verifyNoInteractions(guestQuota);
+    void reportsTheCallersFreeRecipes() {
+        when(allowance.freeRecipes("u1", GUEST)).thenReturn(new FreeRecipeQuota.FreeRecipes(4, 1));
+
+        assertEquals(new FreeRecipeQuota.FreeRecipes(4, 1), resource.freeRecipes(GUEST));
     }
 }

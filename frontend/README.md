@@ -14,18 +14,20 @@ npm run build && npm start   # production
 | `/meal-plan` | `POST /meal-plan` |
 | `/autonomous` Agent | `POST /autonomous/stream` |
 | `/profile` | `GET /me`, `/users/{userId}/restrictions`, `/preferences` and `/similar` (signed in) |
+| `/billing` Plan | `GET /billing/plans` and `/billing/subscription`, `POST /billing/checkout` and `/billing/portal` |
+| `/billing/success` | `POST /billing/sync`, where Stripe Checkout sends users back |
 
 `src/app/api/[...path]/route.ts` forwards `/api/*` to `BACKEND_URL` (default `http://localhost:8080`), streaming server-sent events through as they arrive, with the signed-in user's access token (refreshed when it expires).
 
 ## Signing in
 
-`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and tokens never reach the browser. The access, refresh and ID tokens live in httpOnly cookies; the `/api` proxy refreshes the access token when it expires, and `logout` sends the ID token to the provider so it ends the session without asking to confirm. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Guests can generate 4 free recipes (the recipe page shows how many are left), and the proxy gives each browser a `recipetool_guest` cookie the backend counts them by. When the backend answers 401 (free recipes used up, a guest asking for a meal plan, or an ended session), the page opens the sign-in popup (`src/components/SignInDialog.tsx`) rather than showing an error. Other errors show the message the backend sends in the response body (e.g. an ingredient that conflicts with a saved allergy). The profile page asks guests to sign in.
+`src/app/auth/login`, `callback` and `logout` sign users in to the OIDC provider (`OIDC_ISSUER`; see `.env.example`) with the authorization code flow and PKCE, all on the server: the client secret and tokens never reach the browser. The access, refresh and ID tokens live in httpOnly cookies; the `/api` proxy refreshes the access token when it expires, and `logout` sends the ID token to the provider so it ends the session without asking to confirm. `src/lib/oidc.ts` has the shared settings and helpers, and `src/lib/useCurrentUser.ts` tells pages who is signed in. Guests can generate 4 free recipes (the recipe page shows how many are left), and the proxy gives each browser a `recipetool_guest` cookie the backend counts them by. When the backend answers 401 (free recipes used up, a guest asking for a meal plan, or an ended session), the page opens the sign-in popup (`src/components/SignInDialog.tsx`) rather than showing an error. When it answers 402 (a signed-in user's free recipes used up, or a meal plan without a subscription), the page opens the upgrade popup (`src/components/UpgradeDialog.tsx`) with the plans and the free-trial offer. Choosing a plan (`src/components/PlanPicker.tsx`) goes to Stripe Checkout, sending one `Idempotency-Key` per attempt (the proxy passes it on) and disabling the buttons at once, so it can't start two checkouts. Other errors show the message the backend sends in the response body (e.g. an ingredient that conflicts with a saved allergy, or a rate limit). The profile page asks guests to sign in.
 
 ## End-to-end tests
 
 [Playwright](https://playwright.dev) tests in `e2e/`, in two suites. Both need a browser: run `npx playwright install chromium` once, or set `E2E_BROWSER_CHANNEL=msedge` (or `chrome`) to use one already installed.
 
-**UI tests** (`e2e/ui`) check the pages against a faked backend (`e2e/ui/fakeApi.ts` answers `/api/*` in the browser), so they need nothing else running: guests' free-recipe count, the sign-in popup when they run out or ask for a meal plan, the backend's error messages, the signed-in nav and the profile.
+**UI tests** (`e2e/ui`) check the pages against a faked backend (`e2e/ui/fakeApi.ts` answers `/api/*` in the browser), so they need nothing else running: guests' free-recipe count, the sign-in popup when they run out or ask for a meal plan, the upgrade popup and plan page, checkout's idempotency key and double-click guard, the backend's error messages, the signed-in nav and the profile.
 
 ```shell script
 npm run test:e2e        # starts a dev server on port 3100 for the tests

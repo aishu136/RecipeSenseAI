@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -111,6 +112,7 @@ class RecipeAIServiceTest {
         request.ingredients = List.of("rice");
         request.servings = 2;
         request.userId = "u1";
+        request.personalised = true;
 
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
         when(profiles.relevantPreferences("u1", request.toPrompt(), RecipeAIService.PREFERENCES_PER_PROMPT))
@@ -121,5 +123,21 @@ class RecipeAIServiceTest {
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
+    }
+
+    @Test
+    void recipesThatArentPersonalisedDontUseSavedPreferences() {
+        RecipeRequest request = new RecipeRequest();
+        request.diet = "vegan";
+        request.ingredients = List.of("rice");
+        request.servings = 2;
+        request.userId = "u1";
+
+        when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
+        when(recipeAi.generateRecipe("vegan", "any", "rice", 2, "No dietary restrictions.", "", "tool context"))
+                .thenReturn("recipe json");
+
+        assertEquals("recipe json", service.generateRecipe(request));
+        verifyNoInteractions(profiles);
     }
 }

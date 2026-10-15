@@ -4,12 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.recipe.agent.AutonomousRecipeState.HEALTH_SCORE;
 import static org.recipe.agent.AutonomousRecipeState.NEEDS_IMPROVEMENT;
 import static org.recipe.agent.AutonomousRecipeState.STEPS;
 import static org.recipe.agent.AutonomousRecipeState.STEP_INDEX;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -25,15 +27,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.recipe.agent.AutonomousRecipeState;
+import org.recipe.billing.Subscriptions;
 import org.recipe.model.MealPlan;
 import org.recipe.model.MealPlanRequest;
 import org.recipe.model.RecipeRequest;
 import org.recipe.service.AutonomousRecipeService;
 import org.recipe.service.MealPlanService;
 import org.recipe.service.RecipeAgentService;
+import org.recipe.service.RecipeAllowance;
 
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.WebApplicationException;
 
 @ExtendWith(MockitoExtension.class)
 class ResourcesTest {
@@ -50,9 +55,16 @@ class ResourcesTest {
     @Mock
     SecurityIdentity identity;
 
+    @Mock
+    RecipeAllowance allowance;
+
+    @Mock
+    Subscriptions subscriptions;
+
     @BeforeEach
     void signIn() {
         lenient().when(identity.getPrincipal()).thenReturn(() -> "u1");
+        lenient().when(allowance.open(any(), any())).thenReturn(new RecipeAllowance.Access(true, () -> { }));
     }
 
     @Test
@@ -124,6 +136,7 @@ class ResourcesTest {
         RecipeStreamingResource resource = new RecipeStreamingResource();
         resource.agentService = agentService;
         resource.identity = identity;
+        resource.allowance = allowance;
         when(agentService.process(argThat(r -> "u1".equals(r.userId)), any())).thenAnswer(call -> {
             Consumer<String> onStep = call.getArgument(1);
             List.of("search", "nutrition", "allergy", "combine").forEach(onStep);
@@ -154,6 +167,7 @@ class ResourcesTest {
         RecipeStreamingResource resource = new RecipeStreamingResource();
         resource.agentService = agentService;
         resource.identity = identity;
+        resource.allowance = allowance;
         when(agentService.process(any(RecipeRequest.class), any()))
                 .thenThrow(new BadRequestException("diet is required"));
 
@@ -167,6 +181,7 @@ class ResourcesTest {
         MealPlanResource resource = new MealPlanResource();
         resource.service = mealPlanService;
         resource.identity = identity;
+        resource.subscriptions = subscriptions;
         MealPlanRequest request = new MealPlanRequest();
         request.diet = "vegan";
         request.userId = "someone-else";
@@ -184,6 +199,59 @@ class ResourcesTest {
         resource.service = mealPlanService;
 
         assertThrows(BadRequestException.class, () -> resource.plan(null));
+        verifyNoInteractions(mealPlanService);
+    }
+
+    @Test
+    void streamRefusesBeforeAnyEventOnceTheFreeRecipesAreUsedUp() {
+        RecipeStreamingResource resource = new RecipeStreamingResource();
+        resource.agentService = agentService;
+        resource.identity = identity;
+        resource.allowance = allowance;
+        when(allowance.open("u1", null)).thenThrow(Subscriptions.paymentRequired("Start your free trial"));
+        RecipeRequest request = new RecipeRequest();
+        request.diet = "vegan";
+        request.ingredients = List.of("rice");
+        request.servings = 1;
+
+        WebApplicationException e = assertThrows(WebApplicationException.class, () -> resource.streamRecipe(null, request)
+                .collect().asList()
+                .await().atMost(Duration.ofSeconds(5)));
+
+        assertEquals(402, e.getResponse().getStatus());
+        verifyNoInteractions(agentService);
+    }
+
+    @Test
+    void streamGivesBackTheFreeRecipeWhenTheAgentFails() {
+        RecipeStreamingResource resource = new RecipeStreamingResource();
+        resource.agentService = agentService;
+        resource.identity = identity;
+        resource.allowance = allowance;
+        Runnable giveBack = org.mockito.Mockito.mock(Runnable.class);
+        when(allowance.open(any(), any())).thenReturn(new RecipeAllowance.Access(false, giveBack));
+        when(agentService.process(any(RecipeRequest.class), any())).thenThrow(new IllegalStateException("model down"));
+
+        assertThrows(IllegalStateException.class, () -> resource.streamRecipe(null, new RecipeRequest())
+                .collect().asList()
+                .await().atMost(Duration.ofSeconds(5)));
+
+        verify(giveBack).run();
+    }
+
+    @Test
+    void mealPlansNeedASubscription() {
+        MealPlanResource resource = new MealPlanResource();
+        resource.service = mealPlanService;
+        resource.identity = identity;
+        resource.subscriptions = subscriptions;
+        org.mockito.Mockito.doThrow(Subscriptions.paymentRequired("Meal plans come with a subscription."))
+                .when(subscriptions).require(eq("u1"), anyString());
+
+        WebApplicationException e = assertThrows(WebApplicationException.class,
+                () -> resource.plan(new MealPlanRequest()));
+
+        assertEquals(402, e.getResponse().getStatus());
         verifyNoInteractions(mealPlanService);
     }
 }

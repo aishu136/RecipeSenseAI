@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HealthScore, RecipeResult } from "@/components/RecipeCard";
 import { StepList } from "@/components/StepList";
@@ -14,8 +15,14 @@ import {
   type ProcessedRecipe,
   type RecipeRequest,
 } from "@/lib/api";
-import { askToSignIn } from "@/lib/signInDialog";
-import { isUnauthorized, needSignIn, useCurrentUser } from "@/lib/useCurrentUser";
+import { askToSignIn, askToSubscribe } from "@/lib/signInDialog";
+import {
+  isPaymentRequired,
+  isUnauthorized,
+  needSignIn,
+  needSubscription,
+  useCurrentUser,
+} from "@/lib/useCurrentUser";
 
 type Result =
   | { mode: "scored"; recipe: ProcessedRecipe }
@@ -34,12 +41,12 @@ export default function RecipePage() {
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Guests' free recipes left; null when signed in (unlimited) or not known yet
+  // Free recipes left (guests and users without a subscription); null when unlimited or not known yet
   const [free, setFree] = useState<FreeRecipes | null>(null);
   const [freeVersion, setFreeVersion] = useState(0);
 
   useEffect(() => {
-    if (user.status !== "signedOut") return;
+    if (user.status === "loading") return;
     let current = true;
     getJson<FreeRecipes>("/recipe/free-recipes").then(
       (loaded) => current && setFree(loaded),
@@ -50,15 +57,18 @@ export default function RecipePage() {
     };
   }, [user.status, freeVersion]);
 
-  const guestFree =
-    user.status === "signedOut" && free?.limit != null && free.remaining != null
+  const signedIn = user.status === "signedIn";
+  const freeLeft =
+    user.status !== "loading" && free?.limit != null && free.remaining != null
       ? { limit: free.limit, remaining: free.remaining }
       : null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (guestFree?.remaining === 0) {
-      askToSignIn(`You've used your ${guestFree.limit} free recipes. Sign in to keep generating recipes.`);
+    if (freeLeft?.remaining === 0) {
+      const usedUp = `You've used your ${freeLeft.limit} free recipes.`;
+      if (signedIn) askToSubscribe(`${usedUp} Choose a plan for unlimited recipes personalised to your diet and preferences.`);
+      else askToSignIn(`${usedUp} Sign in to keep generating recipes.`);
       return;
     }
     const request: RecipeRequest = {
@@ -89,10 +99,11 @@ export default function RecipePage() {
       }
     } catch (err) {
       if (isUnauthorized(err)) needSignIn(err, "Sign in to generate recipes.");
+      else if (isPaymentRequired(err)) needSubscription(err, "Choose a plan to keep generating recipes.");
       else setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
-      if (user.status === "signedOut") setFreeVersion((v) => v + 1);
+      if (freeLeft) setFreeVersion((v) => v + 1);
     }
   }
 
@@ -148,15 +159,26 @@ export default function RecipePage() {
             <Button type="submit" loading={loading}>
               Generate
             </Button>
-            {guestFree && (
+            {freeLeft && (
               <p className="text-xs text-muted" aria-live="polite">
-                {guestFree.remaining > 0
-                  ? `${guestFree.remaining} of ${guestFree.limit} free recipes left. `
+                {freeLeft.remaining > 0
+                  ? `${freeLeft.remaining} of ${freeLeft.limit} free recipes left. `
                   : "You've used your free recipes. "}
-                <a href={signInHref("/")} className="font-medium text-accent hover:underline">
-                  Sign in
-                </a>{" "}
-                for unlimited recipes and your saved allergies.
+                {signedIn ? (
+                  <>
+                    <Link href="/billing" className="font-medium text-accent hover:underline">
+                      See plans
+                    </Link>{" "}
+                    for unlimited recipes personalised to your diet and preferences.
+                  </>
+                ) : (
+                  <>
+                    <a href={signInHref("/")} className="font-medium text-accent hover:underline">
+                      Sign in
+                    </a>{" "}
+                    to keep generating recipes with your saved allergies.
+                  </>
+                )}
               </p>
             )}
           </form>

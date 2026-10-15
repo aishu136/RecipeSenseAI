@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/meal-plan", label: "Meal plan" },
   { href: "/autonomous", label: "Agent" },
   { href: "/profile", label: "Profile" },
+  { href: "/billing", label: "Plan" },
 ] as const;
 
 export function Nav() {

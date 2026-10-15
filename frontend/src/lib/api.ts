@@ -62,10 +62,16 @@ export class ApiError extends Error {
   }
 }
 
-async function send(path: string, body: string | undefined, accept: string, method = "POST"): Promise<Response> {
+async function send(
+  path: string,
+  body: string | undefined,
+  accept: string,
+  method = "POST",
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
   const response = await fetch(`/api${path}`, {
     method,
-    headers: body === undefined ? { accept } : { "content-type": "application/json", accept },
+    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), accept, ...extraHeaders },
     body,
   });
   if (!response.ok) {
@@ -75,8 +81,8 @@ async function send(path: string, body: string | undefined, accept: string, meth
   return response;
 }
 
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  return (await send(path, JSON.stringify(body), "application/json")).json();
+export async function postJson<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<T> {
+  return (await send(path, JSON.stringify(body), "application/json", "POST", headers)).json();
 }
 
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
@@ -91,7 +97,7 @@ export async function deleteResource(path: string): Promise<void> {
   await send(path, undefined, "application/json", "DELETE");
 }
 
-// GET /recipe/free-recipes: what a guest has left; both null once signed in (unlimited)
+// GET /recipe/free-recipes: the caller's free recipes left; both null with a subscription (unlimited)
 export type FreeRecipes = { limit: number | null; remaining: number | null };
 
 // A user's dietary profile, under /users/{userId}
@@ -190,4 +196,36 @@ export function splitList(value: string): string[] {
 // Sign-in link (a route handler that redirects to the OIDC provider) that comes back to returnTo
 export function signInHref(returnTo: string): string {
   return `/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+// ---------- subscriptions (Stripe) ----------
+
+// amount is in the currency's smallest unit, e.g. cents
+export type PlanPrice = { plan: "monthly" | "yearly"; amount: number; currency: string; interval: string | null };
+
+// GET /billing/plans; available is false until Stripe is set up
+export type Plans = { available: boolean; trialDays: number; plans: PlanPrice[] };
+
+// GET /billing/subscription; dates are epoch seconds
+export type SubscriptionView = {
+  available: boolean;
+  entitled: boolean;
+  trialAvailable: boolean;
+  hasBillingAccount: boolean;
+  status: string | null;
+  plan: "monthly" | "yearly" | null;
+  trialEnd: number | null;
+  currentPeriodEnd: number | null;
+  cancelAtPeriodEnd: boolean;
+};
+
+export function formatPrice(price: PlanPrice): string {
+  const amount = new Intl.NumberFormat(undefined, { style: "currency", currency: price.currency.toUpperCase() }).format(
+    price.amount / 100,
+  );
+  return price.interval ? `${amount} / ${price.interval}` : amount;
+}
+
+export function formatDate(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 }
