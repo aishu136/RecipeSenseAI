@@ -1,39 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Translate } from "@/lib/i18n";
 import { PlanPicker } from "@/components/PlanPicker";
 import { Card, ErrorBox, PageHeader, SignInPrompt } from "@/components/ui";
 import { formatDate, getJson, type Plans, type SubscriptionView } from "@/lib/api";
 import { openBillingPortal } from "@/lib/checkout";
+import { useI18n } from "@/lib/i18n";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type Loaded = { plans: Plans; subscription: SubscriptionView } | { error: string };
 
-const PLAN_NAMES = { monthly: "Monthly", yearly: "Yearly" } as const;
-
 // What the user's subscription means for them, in a sentence
-function describe(s: SubscriptionView): string {
-  const plan = s.plan ? `${PLAN_NAMES[s.plan]} plan` : "Your plan";
+function describe(s: SubscriptionView, t: Translate): string {
+  const plan = s.plan ? t(s.plan === "monthly" ? "billing.monthlyPlan" : "billing.yearlyPlan") : t("billing.yourPlan");
   switch (s.status) {
     case "trialing":
       return s.trialEnd
-        ? `Free trial until ${formatDate(s.trialEnd)}, then the ${plan.toLowerCase()}${s.cancelAtPeriodEnd ? " is cancelled" : " starts"}.`
-        : "You're on a free trial.";
+        ? t(s.cancelAtPeriodEnd ? "billing.trialThenCancelled" : "billing.trialThenStarts", {
+            date: formatDate(s.trialEnd),
+            plan: plan.toLowerCase(),
+          })
+        : t("billing.onTrial");
     case "active":
-      if (!s.currentPeriodEnd) return `${plan}, active.`;
-      return s.cancelAtPeriodEnd
-        ? `${plan}, ending on ${formatDate(s.currentPeriodEnd)}.`
-        : `${plan}, renews on ${formatDate(s.currentPeriodEnd)}.`;
+      if (!s.currentPeriodEnd) return t("billing.active", { plan });
+      return t(s.cancelAtPeriodEnd ? "billing.ending" : "billing.renews", { plan, date: formatDate(s.currentPeriodEnd) });
     case "past_due":
-      return "Your last payment failed. Update your card to keep your subscription.";
+      return t("billing.pastDue");
     case "canceled":
-      return "Your subscription has ended.";
+      return t("billing.ended");
     default:
-      return "You're on the free plan: a few free recipes, without personalisation or meal plans.";
+      return t("billing.free");
   }
 }
 
 export default function BillingPage() {
+  const { t } = useI18n();
   const user = useCurrentUser();
   const signedIn = user.status === "signedIn";
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -65,23 +67,21 @@ export default function BillingPage() {
 
   return (
     <>
-      <PageHeader title="Your plan">
-        Subscribers get unlimited recipes and meal plans, personalised to their saved diet and preferences.
-      </PageHeader>
+      <PageHeader title={t("billing.title")}>{t("billing.intro")}</PageHeader>
 
-      {user.status === "signedOut" && <SignInPrompt what="see your plan" returnTo="/billing" />}
-      {signedIn && loaded === null && <Card className="text-sm text-muted">Loading your plan…</Card>}
+      {user.status === "signedOut" && <SignInPrompt message={t("billing.signIn")} returnTo="/billing" />}
+      {signedIn && loaded === null && <Card className="text-sm text-muted">{t("billing.loading")}</Card>}
       {loaded && "error" in loaded && <ErrorBox message={loaded.error} />}
 
       {loaded && "plans" in loaded && !loaded.plans.available && (
-        <Card className="text-sm text-muted">Subscriptions aren&apos;t set up on this server yet.</Card>
+        <Card className="text-sm text-muted">{t("plans.unavailable")}</Card>
       )}
 
       {loaded && "plans" in loaded && loaded.plans.available && (
         <div className="flex flex-col gap-6">
           <Card className="flex flex-col gap-3">
-            <h2 className="font-semibold">Current plan</h2>
-            <p className="text-sm">{describe(loaded.subscription)}</p>
+            <h2 className="font-semibold">{t("billing.current")}</h2>
+            <p className="text-sm">{describe(loaded.subscription, t)}</p>
             {loaded.subscription.hasBillingAccount && (
               <div>
                 <button
@@ -90,9 +90,9 @@ export default function BillingPage() {
                   disabled={opening}
                   className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface-2 disabled:opacity-60"
                 >
-                  Manage billing
+                  {t("billing.manage")}
                 </button>
-                <p className="mt-2 text-xs text-muted">Change plan, update your card or cancel, on Stripe.</p>
+                <p className="mt-2 text-xs text-muted">{t("billing.manageHint")}</p>
               </div>
             )}
             {portalError && <ErrorBox message={portalError} />}
@@ -100,7 +100,7 @@ export default function BillingPage() {
 
           {!loaded.subscription.entitled && (
             <Card className="flex flex-col gap-4">
-              <h2 className="font-semibold">Choose a plan</h2>
+              <h2 className="font-semibold">{t("billing.choose")}</h2>
               <PlanPicker
                 plans={loaded.plans.plans}
                 trialDays={loaded.plans.trialDays}

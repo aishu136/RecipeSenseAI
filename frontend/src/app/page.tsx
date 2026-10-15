@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { MicButton } from "@/components/MicButton";
 import { HealthScore, RecipeResult } from "@/components/RecipeCard";
 import { StepList } from "@/components/StepList";
 import { Button, Card, ErrorBox, Field, Input, PageHeader } from "@/components/ui";
@@ -15,6 +16,9 @@ import {
   type ProcessedRecipe,
   type RecipeRequest,
 } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/messages";
+import { DIFFICULTIES, MEAL_TYPES } from "@/lib/recipe";
 import { askToSignIn, askToSubscribe } from "@/lib/signInDialog";
 import {
   isPaymentRequired,
@@ -25,16 +29,30 @@ import {
 } from "@/lib/useCurrentUser";
 
 type Result =
-  | { mode: "scored"; recipe: ProcessedRecipe }
-  | { mode: "stream"; steps: string[]; text: string };
+  | { mode: "scored"; recipe: ProcessedRecipe; request: RecipeRequest }
+  | { mode: "stream"; steps: string[]; text: string; request: RecipeRequest };
+
+const selectClass =
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20";
+
+// A positive whole number from a field, or undefined when it's empty
+function optionalNumber(value: string): number | undefined {
+  const number = Number(value);
+  return value.trim() && Number.isFinite(number) && number > 0 ? Math.round(number) : undefined;
+}
 
 export default function RecipePage() {
+  const { t, locale } = useI18n();
   const [diet, setDiet] = useState("vegetarian");
   const [ingredients, setIngredients] = useState("rice, tomato, onion");
   const [servings, setServings] = useState(2);
   const [cuisine, setCuisine] = useState("");
   const [allergies, setAllergies] = useState("");
   const [avoid, setAvoid] = useState("");
+  const [maxMinutes, setMaxMinutes] = useState("");
+  const [maxCalories, setMaxCalories] = useState("");
+  const [difficulty, setDifficulty] = useState("");
+  const [mealType, setMealType] = useState("");
   const user = useCurrentUser();
   const [stream, setStream] = useState(false);
 
@@ -62,13 +80,20 @@ export default function RecipePage() {
     user.status !== "loading" && free?.limit != null && free.remaining != null
       ? { limit: free.limit, remaining: free.remaining }
       : null;
+  const advancedCount = [maxMinutes, maxCalories, difficulty, mealType].filter((v) => v.trim()).length;
+
+  // Spoken ingredients join the list: "rice and tomatoes" → "rice, tomatoes"
+  function addSpoken(text: string) {
+    const spoken = text.replace(/\s+(and|y|et|और)\s+/gi, ", ");
+    setIngredients((current) => (current.trim() ? `${current.trim().replace(/,$/, "")}, ${spoken}` : spoken));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (freeLeft?.remaining === 0) {
-      const usedUp = `You've used your ${freeLeft.limit} free recipes.`;
-      if (signedIn) askToSubscribe(`${usedUp} Choose a plan for unlimited recipes personalised to your diet and preferences.`);
-      else askToSignIn(`${usedUp} Sign in to keep generating recipes.`);
+      const usedUp = t("home.usedUp", { limit: freeLeft.limit });
+      if (signedIn) askToSubscribe(`${usedUp} ${t("home.choosePlan")}`);
+      else askToSignIn(`${usedUp} ${t("home.signInToKeepGoing")}`);
       return;
     }
     const request: RecipeRequest = {
@@ -78,6 +103,11 @@ export default function RecipePage() {
       cuisine: cuisine.trim() || undefined,
       allergies: splitList(allergies),
       avoid: splitList(avoid),
+      maxMinutes: optionalNumber(maxMinutes),
+      maxCalories: optionalNumber(maxCalories),
+      difficulty: difficulty || undefined,
+      mealType: mealType || undefined,
+      language: locale,
     };
     setLoading(true);
     setError(null);
@@ -91,15 +121,15 @@ export default function RecipePage() {
         await postStream("/recipe/stream", JSON.stringify(request), (data) => {
           if (!text && data.endsWith("\n")) steps.push(data.trim());
           else text += data;
-          setResult({ mode: "stream", steps: [...steps], text });
+          setResult({ mode: "stream", steps: [...steps], text, request });
         });
-        if (!text) setError("The stream ended without a recipe. Check the backend logs.");
+        if (!text) setError(t("home.streamEmpty"));
       } else {
-        setResult({ mode: "scored", recipe: await postJson<ProcessedRecipe>("/recipe/generate", request) });
+        setResult({ mode: "scored", recipe: await postJson<ProcessedRecipe>("/recipe/generate", request), request });
       }
     } catch (err) {
-      if (isUnauthorized(err)) needSignIn(err, "Sign in to generate recipes.");
-      else if (isPaymentRequired(err)) needSubscription(err, "Choose a plan to keep generating recipes.");
+      if (isUnauthorized(err)) needSignIn(err, t("home.signInToGenerate"));
+      else if (isPaymentRequired(err)) needSubscription(err, t("home.choosePlanToKeepGoing"));
       else setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -107,23 +137,34 @@ export default function RecipePage() {
     }
   }
 
+  const context = result && {
+    diet: result.request.diet,
+    cuisine: result.request.cuisine ?? null,
+    servings: result.request.servings,
+  };
+
   return (
     <>
-      <PageHeader title="Generate a recipe">
-        The LLM writes a recipe from your ingredients, and the Flink job scores how healthy it is.
-      </PageHeader>
+      <PageHeader title={t("home.title")}>{t("home.intro")}</PageHeader>
 
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <Card className="h-fit">
           <form onSubmit={submit} className="flex flex-col gap-4">
-            <Field label="Diet">
+            <Field label={t("form.diet")}>
               <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder="vegetarian" required />
             </Field>
-            <Field label="Ingredients" hint="Comma-separated">
-              <Input value={ingredients} onChange={(e) => setIngredients(e.target.value)} required />
-            </Field>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="ingredients" className="text-sm font-medium">
+                {t("form.ingredients")}
+              </label>
+              <div className="flex gap-2">
+                <Input id="ingredients" value={ingredients} onChange={(e) => setIngredients(e.target.value)} required />
+                <MicButton onText={addSpoken} label={t("mic.ingredients")} />
+              </div>
+              <span className="text-xs text-muted">{t("form.commaSeparated")}</span>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Servings">
+              <Field label={t("form.servings")}>
                 <Input
                   type="number"
                   min={1}
@@ -132,16 +173,64 @@ export default function RecipePage() {
                   required
                 />
               </Field>
-              <Field label="Cuisine">
-                <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
+              <Field label={t("form.cuisine")}>
+                <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder={t("form.any")} />
               </Field>
             </div>
-            <Field label="Allergies" hint="Comma-separated; never in the recipe. Your profile’s saved ones apply too">
-              <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="none" />
+            <Field label={t("form.allergies")} hint={t("home.allergiesHint")}>
+              <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder={t("form.none")} />
             </Field>
-            <Field label="Avoid" hint="Comma-separated ingredients you don't eat">
-              <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="none" />
+            <Field label={t("form.avoid")} hint={t("form.avoidHint")}>
+              <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder={t("form.none")} />
             </Field>
+
+            <details className="rounded-lg border border-border px-3 py-2" open={advancedCount > 0 || undefined}>
+              <summary className="cursor-pointer text-sm font-medium">
+                {t("home.advanced")}
+                {advancedCount > 0 && <span className="ml-1 text-muted">({advancedCount})</span>}
+              </summary>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <Field label={t("home.maxMinutes")}>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={maxMinutes}
+                    onChange={(e) => setMaxMinutes(e.target.value)}
+                    placeholder={t("form.any")}
+                  />
+                </Field>
+                <Field label={t("home.maxCalories")}>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={maxCalories}
+                    onChange={(e) => setMaxCalories(e.target.value)}
+                    placeholder={t("form.any")}
+                  />
+                </Field>
+                <Field label={t("home.difficulty")}>
+                  <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} className={selectClass}>
+                    <option value="">{t("form.any")}</option>
+                    {DIFFICULTIES.map((d) => (
+                      <option key={d} value={d}>
+                        {t(`difficulty.${d}` as MessageKey)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={t("home.meal")}>
+                  <select value={mealType} onChange={(e) => setMealType(e.target.value)} className={selectClass}>
+                    <option value="">{t("form.any")}</option>
+                    {MEAL_TYPES.map((m) => (
+                      <option key={m} value={m}>
+                        {t(`meal.${m}` as MessageKey)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </details>
+
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
@@ -150,33 +239,31 @@ export default function RecipePage() {
                 className="mt-0.5 accent-accent"
               />
               <span>
-                Stream live progress
-                <span className="block text-xs text-muted">
-                  Shows each step as it runs, but skips the health score and personalisation
-                </span>
+                {t("home.stream")}
+                <span className="block text-xs text-muted">{t("home.streamHint")}</span>
               </span>
             </label>
             <Button type="submit" loading={loading}>
-              Generate
+              {t("home.generate")}
             </Button>
             {freeLeft && (
               <p className="text-xs text-muted" aria-live="polite">
                 {freeLeft.remaining > 0
-                  ? `${freeLeft.remaining} of ${freeLeft.limit} free recipes left. `
-                  : "You've used your free recipes. "}
+                  ? `${t("home.freeLeft", { remaining: freeLeft.remaining, limit: freeLeft.limit })} `
+                  : `${t("home.freeUsed")} `}
                 {signedIn ? (
                   <>
                     <Link href="/billing" className="font-medium text-accent hover:underline">
-                      See plans
+                      {t("home.seePlans")}
                     </Link>{" "}
-                    for unlimited recipes personalised to your diet and preferences.
+                    {t("home.forUnlimited")}
                   </>
                 ) : (
                   <>
                     <a href={signInHref("/")} className="font-medium text-accent hover:underline">
-                      Sign in
+                      {t("nav.signIn")}
                     </a>{" "}
-                    to keep generating recipes with your saved allergies.
+                    {t("home.toKeepGenerating")}
                   </>
                 )}
               </p>
@@ -197,21 +284,17 @@ export default function RecipePage() {
                     <p className="whitespace-pre-wrap font-mono text-sm">{result.text}</p>
                   </Card>
                 ) : (
-                  <RecipeResult text={result.text} />
+                  <RecipeResult text={result.text} context={context ?? undefined} />
                 ))}
             </>
           )}
           {result?.mode === "scored" && (
-            <RecipeResult text={result.recipe.recipe}>
+            <RecipeResult text={result.recipe.recipe} context={context ?? undefined}>
               <HealthScore score={result.recipe.healthScore} needsImprovement={result.recipe.needsImprovement} />
             </RecipeResult>
           )}
           {!result && !error && (
-            <Card className="text-sm text-muted">
-              {loading
-                ? "Cooking something up… this can take a minute with a local model."
-                : "Your recipe will appear here."}
-            </Card>
+            <Card className="text-sm text-muted">{loading ? t("home.cooking") : t("home.placeholder")}</Card>
           )}
         </div>
       </div>

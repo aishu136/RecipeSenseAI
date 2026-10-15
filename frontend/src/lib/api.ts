@@ -1,5 +1,9 @@
 // Client for the Quarkus API, reached through the /api proxy route.
 
+import type { Ingredient, Recipe } from "./recipe";
+
+export type { Recipe } from "./recipe";
+
 export type RecipeRequest = {
   diet: string;
   ingredients: string[];
@@ -9,6 +13,13 @@ export type RecipeRequest = {
   allergies?: string[];
   // Left out of the recipe
   avoid?: string[];
+  // Advanced options
+  maxMinutes?: number;
+  maxCalories?: number;
+  difficulty?: string;
+  mealType?: string;
+  // "en", "es", "fr" or "hi": the language to write the recipe in
+  language?: string;
 };
 
 // POST /recipe/generate; healthScore is null when Flink didn't answer in time
@@ -43,14 +54,6 @@ export type MealPlan = {
     diet: string | null;
     cuisine: string | null;
   } | null;
-};
-
-// The JSON shape the recipe prompts ask the LLM for
-export type Recipe = {
-  recipeName: string;
-  ingredients: string[];
-  instructions: string[];
-  calories?: number;
 };
 
 export class ApiError extends Error {
@@ -91,6 +94,10 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
 
 export async function getJson<T>(path: string): Promise<T> {
   return (await send(path, undefined, "application/json", "GET")).json();
+}
+
+export async function deleteJson<T>(path: string): Promise<T> {
+  return (await send(path, undefined, "application/json", "DELETE")).json();
 }
 
 export async function deleteResource(path: string): Promise<void> {
@@ -152,23 +159,35 @@ function parseEvent(event: string): string | null {
 }
 
 /**
- * Parses the LLM's recipe JSON, tolerating text or code fences around it.
+ * Parses a recipe's JSON, tolerating text or code fences around it. The
+ * backend sends ingredients as {quantity, unit, name}; older recipes and
+ * other models' have text, which is kept as the name (and isn't scaled).
  * Returns null when it isn't a recipe.
  */
 export function parseRecipe(text: string): Recipe | null {
   const json = parseJson(text);
   if (json && typeof json === "object" && "recipeName" in json) {
-    const recipe = json as Recipe;
+    const recipe = json as Record<string, unknown>;
     return {
-      ...recipe,
-      ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.map(toText) : [],
+      ...(recipe as Partial<Recipe>),
+      recipeName: String(recipe.recipeName ?? ""),
+      ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.map(toIngredient) : [],
       instructions: Array.isArray(recipe.instructions) ? recipe.instructions.map(toText) : [],
+      tags: Array.isArray(recipe.tags) ? recipe.tags.map(String) : [],
     };
   }
   return null;
 }
 
-// LLMs sometimes return list items as objects, e.g. {"name": "rice", "quantity": "1 cup"}
+function toIngredient(item: unknown): Ingredient {
+  if (item && typeof item === "object" && typeof (item as Ingredient).name === "string") {
+    const { quantity, unit, name } = item as Ingredient;
+    return { quantity: typeof quantity === "number" && quantity > 0 ? quantity : null, unit: unit || null, name };
+  }
+  return { quantity: null, unit: null, name: toText(item) };
+}
+
+// LLMs sometimes return list items as objects, e.g. {"step": 1, "text": "Boil"}
 function toText(item: unknown): string {
   if (item && typeof item === "object") return Object.values(item).join(" ");
   return String(item);
@@ -228,4 +247,42 @@ export function formatPrice(price: PlanPrice): string {
 
 export function formatDate(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
+
+// ---------- chat assistant ----------
+
+// POST /chat; recipe is a recipe's JSON, needs is set when something was refused for the user's plan
+export type ChatReply = {
+  reply: string;
+  recipe: string | null;
+  shoppingList: ShoppingItem[] | null;
+  needs: "signIn" | "subscribe" | null;
+  needsMessage: string | null;
+};
+
+// ---------- cooking ----------
+
+// POST /recipe/substitutes
+export type Substitute = { name: string; amount: string; note: string };
+
+// POST /shopping-list; quantity is null for e.g. salt, where the recipes don't say how much
+export type ShoppingItem = { name: string; quantity: number | null; unit: string | null; text: string; recipes: string[] };
+
+// GET /recipes; savedAt is epoch seconds, shareId is set while it has a public link
+export type SavedRecipe = {
+  id: string;
+  recipe: Recipe;
+  diet: string | null;
+  cuisine: string | null;
+  language: string;
+  savedAt: number;
+  shareId: string | null;
+};
+
+// GET /shared/{shareId}
+export type SharedRecipe = Omit<SavedRecipe, "id" | "shareId">;
+
+// The public link to a shared recipe
+export function shareUrl(shareId: string): string {
+  return `${window.location.origin}/shared/${shareId}`;
 }

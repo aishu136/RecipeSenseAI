@@ -51,7 +51,7 @@ class RecipeAIServiceTest {
         request.servings = 3;
 
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "any", "rice, beans", 3, "No dietary restrictions.", "", "tool context"))
+        when(recipeAi.generateRecipe("vegan", "any", "rice, beans", 3, "No dietary restrictions.", "", "", "tool context"))
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
@@ -73,7 +73,7 @@ class RecipeAIServiceTest {
         request.cuisine = " Thai ";
 
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "Thai", "rice", 2, "No dietary restrictions.", "", "tool context"))
+        when(recipeAi.generateRecipe("vegan", "Thai", "rice", 2, "No dietary restrictions.", "", "", "tool context"))
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
@@ -89,13 +89,13 @@ class RecipeAIServiceTest {
         request.avoid = List.of("mushroom");
 
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of("peanuts", "mushroom")))).thenReturn("tool context");
-        when(recipeAi.generateRecipe(eq("vegan"), eq("any"), eq("rice"), eq(2), anyString(), eq(""), eq("tool context")))
+        when(recipeAi.generateRecipe(eq("vegan"), eq("any"), eq("rice"), eq(2), anyString(), eq(""), eq(""), eq("tool context")))
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
 
         ArgumentCaptor<String> restrictions = ArgumentCaptor.forClass(String.class);
-        verify(recipeAi).generateRecipe(anyString(), anyString(), anyString(), anyInt(), restrictions.capture(), anyString(), anyString());
+        verify(recipeAi).generateRecipe(anyString(), anyString(), anyString(), anyInt(), restrictions.capture(), anyString(), anyString(), anyString());
         assertTrue(restrictions.getValue().contains("allergic to peanuts"));
         assertTrue(restrictions.getValue().contains("does not eat mushroom"));
 
@@ -119,7 +119,7 @@ class RecipeAIServiceTest {
                 .thenReturn(List.of("low sugar", "loves spicy food"));
         when(recipeAi.generateRecipe("vegan", "any", "rice", 2, "No dietary restrictions.",
                 "The user's preferences; follow them where they fit the request:\n- low sugar\n- loves spicy food",
-                "tool context"))
+                "", "tool context"))
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));
@@ -134,7 +134,7 @@ class RecipeAIServiceTest {
         request.userId = "u1";
 
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of()))).thenReturn("tool context");
-        when(recipeAi.generateRecipe("vegan", "any", "rice", 2, "No dietary restrictions.", "", "tool context"))
+        when(recipeAi.generateRecipe("vegan", "any", "rice", 2, "No dietary restrictions.", "", "", "tool context"))
                 .thenReturn("recipe json");
 
         assertEquals("recipe json", service.generateRecipe(request));

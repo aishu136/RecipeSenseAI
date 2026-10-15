@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ChatWidget } from "@/components/ChatWidget";
 import { Nav } from "@/components/Nav";
 import { SignInDialog } from "@/components/SignInDialog";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
         <SignInDialog />
         <UpgradeDialog />
+        <ChatWidget />
       </body>
     </html>
   );

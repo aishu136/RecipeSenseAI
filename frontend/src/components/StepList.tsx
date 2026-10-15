@@ -1,5 +1,10 @@
+"use client";
+
+import { useI18n } from "@/lib/i18n";
+
 // Progress events from a streaming endpoint, e.g. "🔎 Searched recipes"
 export function StepList({ steps, running }: { steps: string[]; running: boolean }) {
+  const { t } = useI18n();
   if (!steps.length && !running) return null;
   return (
     <ol className="space-y-1.5 text-sm">
@@ -12,7 +17,7 @@ export function StepList({ steps, running }: { steps: string[]; running: boolean
       {running && (
         <li className="flex items-center gap-2 text-muted">
           <span className="size-3 animate-spin rounded-full border-2 border-muted/40 border-t-muted" />
-          Working…
+          {t("common.working")}
         </li>
       )}
     </ol>

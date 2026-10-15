@@ -67,7 +67,7 @@ class RecipeAgentServiceTest {
 
         Consumer<String> onStep = step -> { };
         when(orchestrator.processRecipeRequest(request.toPrompt(), List.of(), onStep)).thenReturn("tool context");
-        when(agent.run("keto", "any", "egg, cheese", 1, "No dietary restrictions.", "", "tool context"))
+        when(agent.run("keto", "any", "egg, cheese", 1, "No dietary restrictions.", "", "", "tool context"))
                 .thenReturn("omelette");
 
         assertEquals("omelette", service.process(request, onStep));
@@ -91,7 +91,7 @@ class RecipeAgentServiceTest {
 
         Consumer<String> onStep = step -> { };
         when(orchestrator.processRecipeRequest(anyString(), eq(List.of("dairy")), eq(onStep))).thenReturn("tool context");
-        when(agent.run(eq("keto"), eq("any"), eq("egg"), eq(1), contains("allergic to dairy"), eq(""), eq("tool context")))
+        when(agent.run(eq("keto"), eq("any"), eq("egg"), eq(1), contains("allergic to dairy"), eq(""), eq(""), eq("tool context")))
                 .thenReturn("omelette");
 
         assertEquals("omelette", service.process(request, onStep));

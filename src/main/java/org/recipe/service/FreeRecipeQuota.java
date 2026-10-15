@@ -145,7 +145,7 @@ public class FreeRecipeQuota {
         return GUEST_PREFIX + guestId;
     }
 
-    static boolean isValid(String guestId) {
+    public static boolean isValid(String guestId) {
         if (guestId == null) {
             return false;
         }

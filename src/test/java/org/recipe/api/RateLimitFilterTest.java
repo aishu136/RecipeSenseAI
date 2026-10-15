@@ -91,6 +91,10 @@ class RateLimitFilterTest {
         assertEquals(Optional.of(Group.MEAL_PLANS), RateLimitFilter.group("POST", "/meal-plan"));
         assertEquals(Optional.of(Group.AGENT), RateLimitFilter.group("POST", "/autonomous/stream"));
         assertEquals(Optional.of(Group.BILLING), RateLimitFilter.group("POST", "/billing/checkout"));
+        assertEquals(Optional.of(Group.CHAT), RateLimitFilter.group("POST", "/chat"));
+        assertEquals(Optional.of(Group.RECIPES), RateLimitFilter.group("POST", "/recipe/customize"));
+        assertEquals(Optional.of(Group.RECIPES), RateLimitFilter.group("POST", "/recipe/substitutes"));
+        assertEquals(Optional.of(Group.OTHER), RateLimitFilter.group("POST", "/shopping-list"));
         assertEquals(Optional.of(Group.OTHER), RateLimitFilter.group("GET", "/recipe/free-recipes"));
         assertEquals(Optional.empty(), RateLimitFilter.group("POST", "/billing/webhook"));
         assertEquals(Optional.empty(), RateLimitFilter.group("GET", "/q/health/ready"));
@@ -168,6 +172,11 @@ class RateLimitFilterTest {
         @Override
         public int billing() {
             return 10;
+        }
+
+        @Override
+        public int chat() {
+            return 20;
         }
 
         @Override

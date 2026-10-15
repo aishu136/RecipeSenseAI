@@ -22,17 +22,26 @@ public interface RecipeAi {
 
         {{preferences}}
 
+        {{options}}
+
         Use this background knowledge where it helps:
         {{context}}
 
-        Return strictly JSON:
+        Return strictly JSON. Give each ingredient's quantity as a number (null if
+        there's none, e.g. salt to taste) and its unit (g, kg, ml, l, cup, tbsp,
+        tsp, clove, pinch, can, or null for a count):
         {
           "recipeName": "",
-          "ingredients": [],
+          "servings": number,
+          "ingredients": [{"quantity": number, "unit": "", "name": ""}],
           "instructions": [],
-          "calories": number
+          "calories": number per serving,
+          "prepMinutes": number,
+          "cookMinutes": number,
+          "difficulty": "easy" | "medium" | "hard",
+          "tags": ["short labels, e.g. spicy, one-pot, high-protein"]
         }
         """)
     String generateRecipe(String diet, String cuisine, String ingredients, int servings, String restrictions,
-            String preferences, String context);
+            String preferences, String options, String context);
 }

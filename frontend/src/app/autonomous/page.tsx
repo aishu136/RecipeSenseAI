@@ -5,11 +5,13 @@ import { RecipeResult } from "@/components/RecipeCard";
 import { StepList } from "@/components/StepList";
 import { Button, Card, ErrorBox, Field, PageHeader, Textarea } from "@/components/ui";
 import { postStream } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
-const EXAMPLES = ["plan a healthy vegan dinner", "a quick high-protein breakfast", "a cosy Italian lunch for four"];
+const EXAMPLES = ["agent.example1", "agent.example2", "agent.example3"] as const;
 
 export default function AutonomousPage() {
-  const [goal, setGoal] = useState(EXAMPLES[0]);
+  const { t } = useI18n();
+  const [goal, setGoal] = useState(() => t(EXAMPLES[0]));
   const [steps, setSteps] = useState<string[]>([]);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,7 +32,7 @@ export default function AutonomousPage() {
         if (!final && data.endsWith("\n")) setSteps((s) => [...s, data.trim()]);
         else setResult((final += data));
       });
-      if (!final) setError("The agent finished without a result. Check the backend logs.");
+      if (!final) setError(t("agent.empty"));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -40,19 +42,16 @@ export default function AutonomousPage() {
 
   return (
     <>
-      <PageHeader title="Autonomous agent">
-        A planner agent breaks your goal into steps, an executor runs them, and recipes Flink flags as unhealthy get
-        improved.
-      </PageHeader>
+      <PageHeader title={t("agent.title")}>{t("agent.intro")}</PageHeader>
 
       <Card className="mb-6">
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <Field label="Goal">
+          <Field label={t("agent.goal")}>
             <Textarea rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} required />
           </Field>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              {EXAMPLES.map((example) => (
+              {EXAMPLES.map((key) => t(key)).map((example) => (
                 <button
                   key={example}
                   type="button"
@@ -64,7 +63,7 @@ export default function AutonomousPage() {
               ))}
             </div>
             <Button type="submit" loading={loading}>
-              Run agent
+              {t("agent.run")}
             </Button>
           </div>
         </form>

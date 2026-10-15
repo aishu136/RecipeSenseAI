@@ -9,6 +9,7 @@ import jakarta.inject.Inject;
 import org.recipe.agent.RecipeAgent;
 import org.recipe.agent.RecipeAgentOrchestrator;
 import org.recipe.memory.UserProfileIndex;
+import org.recipe.cooking.RecipeJson;
 import org.recipe.model.RecipeRequest;
 
 @ApplicationScoped
@@ -49,12 +50,13 @@ public class RecipeAgentService {
                 request.getServings(),
                 request.restrictions().describe(),
                 RecipeAIService.preferencesFor(profiles, request),
+                request.optionsPrompt(),
                 context
         );
 
         // 🔥 Send via Camel for Flink scoring (fire-and-forget)
         camelService.sendToKafka(UUID.randomUUID().toString(), response);
 
-        return response;
+        return RecipeJson.normalize(response, request.getServings());
     }
 }

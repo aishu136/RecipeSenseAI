@@ -2,9 +2,12 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import type { Translate } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/messages";
 import { Button, Card, ErrorBox, Field, Input, PageHeader } from "@/components/ui";
 import { ApiError, postJson, splitList, type Meal, type MealPlan, type MealPlanRequest } from "@/lib/api";
 import { askToSignIn } from "@/lib/signInDialog";
+import { useI18n } from "@/lib/i18n";
 import {
   isPaymentRequired,
   isUnauthorized,
@@ -14,15 +17,14 @@ import {
 } from "@/lib/useCurrentUser";
 
 // Friendlier messages for the errors POST /meal-plan documents
-const ERRORS: Record<number, string> = {
-  404: "No recipes match that diet and those restrictions. Try another diet or cuisine, or fewer restrictions.",
-  502: "The Spoonacular recipe API failed (bad key, daily quota used up, or unreachable).",
-  503: "Meal plans are unavailable: the backend has no SPOONACULAR_API_KEY set.",
+const ERRORS: Record<number, MessageKey> = {
+  404: "mealPlan.error404",
+  502: "mealPlan.error502",
+  503: "mealPlan.error503",
 };
 
-const SIGN_IN_REASON = "Sign in to plan your meals: plans are built around the allergies saved on your profile.";
-
 export default function MealPlanPage() {
+  const { t } = useI18n();
   const [diet, setDiet] = useState("");
   const [cuisine, setCuisine] = useState("");
   const [ingredients, setIngredients] = useState("");
@@ -38,7 +40,7 @@ export default function MealPlanPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (user.status === "signedOut") {
-      askToSignIn(SIGN_IN_REASON);
+      askToSignIn(t("mealPlan.signIn"));
       return;
     }
     const request: MealPlanRequest = {
@@ -55,9 +57,9 @@ export default function MealPlanPage() {
       setPlan(await postJson<MealPlan>("/meal-plan", request));
     } catch (err) {
       setPlan(null);
-      if (isUnauthorized(err)) return needSignIn(err, SIGN_IN_REASON);
-      if (isPaymentRequired(err)) return needSubscription(err, "Meal plans come with a subscription.");
-      setError(err instanceof ApiError ? (ERRORS[err.status] ?? err.message) : String(err));
+      if (isUnauthorized(err)) return needSignIn(err, t("mealPlan.signIn"));
+      if (isPaymentRequired(err)) return needSubscription(err, t("mealPlan.needsPlan"));
+      setError(err instanceof ApiError ? (ERRORS[err.status] ? t(ERRORS[err.status]) : err.message) : String(err));
     } finally {
       setLoading(false);
     }
@@ -65,33 +67,30 @@ export default function MealPlanPage() {
 
   return (
     <>
-      <PageHeader title="Plan your meals">
-        A day-by-day plan of real recipes from Spoonacular, personalised from your searches and the restrictions saved
-        on your profile.
-      </PageHeader>
+      <PageHeader title={t("mealPlan.title")}>{t("mealPlan.intro")}</PageHeader>
 
       <Card className="mb-6">
         <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr_90px] lg:items-end">
-          <Field label="Diet">
-            <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder="any" />
+          <Field label={t("form.diet")}>
+            <Input value={diet} onChange={(e) => setDiet(e.target.value)} placeholder={t("form.any")} />
           </Field>
-          <Field label="Cuisine">
-            <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder="any" />
+          <Field label={t("form.cuisine")}>
+            <Input value={cuisine} onChange={(e) => setCuisine(e.target.value)} placeholder={t("form.any")} />
           </Field>
-          <Field label="Ingredients">
+          <Field label={t("form.ingredients")}>
             <Input value={ingredients} onChange={(e) => setIngredients(e.target.value)} placeholder="rice, lentils" />
           </Field>
-          <Field label="Days">
+          <Field label={t("mealPlan.days")}>
             <Input type="number" min={1} max={14} value={days} onChange={(e) => setDays(Number(e.target.value))} />
           </Field>
-          <Field label="Allergies">
+          <Field label={t("form.allergies")}>
             <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="peanut, dairy" />
           </Field>
-          <Field label="Avoid">
+          <Field label={t("form.avoid")}>
             <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="mushroom" />
           </Field>
           <Button type="submit" loading={loading}>
-            Plan
+            {t("mealPlan.plan")}
           </Button>
         </form>
       </Card>
@@ -100,14 +99,14 @@ export default function MealPlanPage() {
 
       {plan && (
         <div className="flex flex-col gap-6">
-          {plan.personalisedWith && <Personalisation with={plan.personalisedWith} />}
+          {plan.personalisedWith && <Personalisation with={plan.personalisedWith} t={t} />}
           {plan.days.map((day) => (
             <section key={day.day}>
-              <h2 className="mb-3 text-lg font-semibold">Day {day.day}</h2>
+              <h2 className="mb-3 text-lg font-semibold">{t("mealPlan.day", { day: day.day })}</h2>
               <div className="grid gap-4 sm:grid-cols-3">
-                <MealCard label="Breakfast" meal={day.breakfast} />
-                <MealCard label="Lunch" meal={day.lunch} />
-                <MealCard label="Dinner" meal={day.dinner} />
+                <MealCard label={t("meal.breakfast")} meal={day.breakfast} />
+                <MealCard label={t("meal.lunch")} meal={day.lunch} />
+                <MealCard label={t("meal.dinner")} meal={day.dinner} />
               </div>
             </section>
           ))}
@@ -117,15 +116,15 @@ export default function MealPlanPage() {
   );
 }
 
-function Personalisation({ with: p }: { with: NonNullable<MealPlan["personalisedWith"]> }) {
+function Personalisation({ with: p, t }: { with: NonNullable<MealPlan["personalisedWith"]>; t: Translate }) {
   const parts = [
-    p.favoriteIngredients.length > 0 && `favourite ingredients ${p.favoriteIngredients.join(", ")}`,
-    p.diet && `saved diet ${p.diet}`,
-    p.cuisine && `cuisine ${p.cuisine}`,
+    p.favoriteIngredients.length > 0 && t("mealPlan.favourites", { ingredients: p.favoriteIngredients.join(", ") }),
+    p.diet && t("mealPlan.savedDiet", { diet: p.diet }),
+    p.cuisine && t("mealPlan.cuisine", { cuisine: p.cuisine }),
   ].filter(Boolean);
   return (
     <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm">
-      ✨ Personalised with your {parts.join(" · ")}
+      ✨ {t("mealPlan.personalised", { parts: parts.join(" · ") })}
     </p>
   );
 }

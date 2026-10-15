@@ -1,5 +1,8 @@
+"use client";
+
 import type { ComponentProps, ReactNode } from "react";
 import { signInHref } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -51,12 +54,13 @@ export const linkButtonClass =
   "inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong";
 
 // Shown in place of a page's content when the user isn't signed in
-export function SignInPrompt({ what, returnTo }: { what: string; returnTo: string }) {
+export function SignInPrompt({ message, returnTo }: { message: string; returnTo: string }) {
+  const { t } = useI18n();
   return (
     <Card className="flex max-w-md flex-col items-start gap-3">
-      <p className="text-sm text-muted">Sign in to {what}.</p>
+      <p className="text-sm text-muted">{message}</p>
       <a href={signInHref(returnTo)} className={linkButtonClass}>
-        Sign in
+        {t("nav.signIn")}
       </a>
     </Card>
   );

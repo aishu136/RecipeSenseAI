@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { translate, getLocale } from "@/lib/i18n";
 import { Button, Card, ErrorBox, Field, Input, PageHeader, SignInPrompt, Textarea } from "@/components/ui";
 import {
   deleteResource,
@@ -14,6 +15,7 @@ import {
   type SimilarRestrictions,
 } from "@/lib/api";
 import { isUnauthorized, signedOut, useCurrentUser } from "@/lib/useCurrentUser";
+import { useI18n } from "@/lib/i18n";
 
 type Profile = {
   userId: string;
@@ -38,12 +40,13 @@ async function loadProfile(userId: string): Promise<Profile> {
 function message(err: unknown): string {
   if (isUnauthorized(err)) {
     signedOut();
-    return "Your session has ended. Sign in again.";
+    return translate(getLocale(), "profile.sessionEnded");
   }
   return err instanceof Error ? err.message : String(err);
 }
 
 export default function ProfilePage() {
+  const { t } = useI18n();
   const user = useCurrentUser();
   const userId = user.status === "signedIn" ? user.userId : null;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -66,14 +69,11 @@ export default function ProfilePage() {
 
   return (
     <>
-      <PageHeader title="Your dietary profile">
-        Saved restrictions apply to every recipe and meal plan you make. Free-text preferences guide the recipes
-        they&apos;re relevant to.
-      </PageHeader>
+      <PageHeader title={t("profile.title")}>{t("profile.intro")}</PageHeader>
 
-      {user.status === "signedOut" && <SignInPrompt what="see and edit your dietary profile" returnTo="/profile" />}
+      {user.status === "signedOut" && <SignInPrompt message={t("profile.signIn")} returnTo="/profile" />}
 
-      {userId && !mine && <Card className="text-sm text-muted">Loading your profile…</Card>}
+      {userId && !mine && <Card className="text-sm text-muted">{t("profile.loading")}</Card>}
 
       {mine && "error" in mine && <ErrorBox message={mine.error} />}
 
@@ -115,6 +115,7 @@ function RestrictionsCard({
   saved: DietaryRestrictions;
   onSaved: () => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [allergies, setAllergies] = useState(saved.allergies.join(", "));
   const [avoid, setAvoid] = useState(saved.avoid.join(", "));
   const [saving, setSaving] = useState(false);
@@ -132,7 +133,7 @@ function RestrictionsCard({
         avoid: splitList(avoid),
       });
       await onSaved();
-      setStatus("Saved");
+      setStatus(t("profile.saved"));
     } catch (err) {
       setError(message(err));
     } finally {
@@ -142,19 +143,19 @@ function RestrictionsCard({
 
   return (
     <Card>
-      <h2 className="mb-1 font-semibold">Restrictions</h2>
-      <p className="mb-4 text-sm text-muted">Saved in Redis and never left out of a request with your user id.</p>
+      <h2 className="mb-1 font-semibold">{t("profile.restrictions")}</h2>
+      <p className="mb-4 text-sm text-muted">{t("profile.restrictionsHint")}</p>
       <form onSubmit={save} className="flex flex-col gap-4">
-        <Field label="Allergies" hint="Comma-separated; never in a recipe, nor anything made from them">
+        <Field label={t("form.allergies")} hint={t("profile.allergiesHint")}>
           <Input value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder="peanut, dairy" />
         </Field>
-        <Field label="Avoid" hint="Comma-separated ingredients you don't eat">
+        <Field label={t("form.avoid")} hint={t("form.avoidHint")}>
           <Input value={avoid} onChange={(e) => setAvoid(e.target.value)} placeholder="mushroom" />
         </Field>
         {error && <ErrorBox message={error} />}
         <div className="flex items-center gap-3">
           <Button type="submit" loading={saving}>
-            Save restrictions
+            {t("profile.saveRestrictions")}
           </Button>
           {status && <span className="text-sm text-muted">{status}</span>}
         </div>
@@ -172,6 +173,7 @@ function PreferencesCard({
   preferences: Preference[];
   onChange: (preferences: Preference[]) => void;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -203,9 +205,9 @@ function PreferencesCard({
 
   return (
     <Card>
-      <h2 className="mb-1 font-semibold">Preferences</h2>
+      <h2 className="mb-1 font-semibold">{t("profile.preferences")}</h2>
       <p className="mb-4 text-sm text-muted">
-        Anything about how you like to eat. Stored in OpenSearch; the ones closest to each request go into its prompt.
+        {t("profile.preferencesHint")}
       </p>
       {preferences.length > 0 ? (
         <ul className="mb-4 flex flex-col gap-2">
@@ -219,15 +221,15 @@ function PreferencesCard({
                 type="button"
                 onClick={() => remove(preference)}
                 className="shrink-0 text-xs font-medium text-muted hover:text-danger"
-                aria-label={`Delete preference: ${preference.text}`}
+                aria-label={t("profile.deletePreference", { text: preference.text })}
               >
-                Delete
+                {t("recipe.delete")}
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mb-4 text-sm text-muted">No preferences yet.</p>
+        <p className="mb-4 text-sm text-muted">{t("profile.noPreferences")}</p>
       )}
       <form onSubmit={add} className="flex flex-col gap-3">
         <Textarea
@@ -235,13 +237,13 @@ function PreferencesCard({
           onChange={(e) => setText(e.target.value)}
           rows={2}
           maxLength={500}
-          placeholder="Low sugar; I love spicy food and quick weeknight dinners"
+          placeholder={t("profile.preferencePlaceholder")}
           required
         />
         {error && <ErrorBox message={error} />}
         <div>
           <Button type="submit" loading={adding}>
-            Add preference
+            {t("profile.addPreference")}
           </Button>
         </div>
       </form>
@@ -250,24 +252,24 @@ function PreferencesCard({
 }
 
 function SimilarUsersCard({ similar, hasRestrictions }: { similar: SimilarRestrictions; hasRestrictions: boolean }) {
+  const { t } = useI18n();
   return (
     <Card className="lg:col-span-2">
-      <h2 className="mb-1 font-semibold">Users with similar restrictions</h2>
+      <h2 className="mb-1 font-semibold">{t("profile.similar")}</h2>
       <p className="mb-4 text-sm text-muted">
-        Found by similarity search over everyone&apos;s saved restrictions. Nobody is named, and a restriction only
-        shows when at least two of them share it.
+        {t("profile.similarHint")}
       </p>
       {similar.users > 0 ? (
         <>
           <p className="text-sm">
-            {similar.users} {similar.users === 1 ? "user has" : "users have"} restrictions like yours.
+            {t(similar.users === 1 ? "profile.similarOne" : "profile.similarMany", { count: similar.users })}
           </p>
           {similar.shared.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2">
               {similar.shared.map((s) => (
                 <li key={`${s.type}-${s.restriction}`} className="rounded-full bg-surface-2 px-3 py-1 text-sm">
-                  {s.type === "allergy" ? "Allergic to" : "Avoids"} {s.restriction}
-                  <span className="text-muted"> · {s.users} users</span>
+                  {t(s.type === "allergy" ? "profile.allergicTo" : "profile.avoids", { restriction: s.restriction })}
+                  <span className="text-muted"> · {t("profile.users", { count: s.users })}</span>
                 </li>
               ))}
             </ul>
@@ -275,7 +277,7 @@ function SimilarUsersCard({ similar, hasRestrictions }: { similar: SimilarRestri
         </>
       ) : (
         <p className="text-sm text-muted">
-          {hasRestrictions ? "No other users have saved restrictions yet." : "Save some restrictions to find users like you."}
+          {hasRestrictions ? t("profile.noOthers") : t("profile.saveToFind")}
         </p>
       )}
     </Card>

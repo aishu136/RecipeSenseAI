@@ -3,8 +3,7 @@
 import { useRef, useState } from "react";
 import { formatPrice, type PlanPrice } from "@/lib/api";
 import { startCheckout } from "@/lib/checkout";
-
-const LABELS = { monthly: "Monthly", yearly: "Yearly" } as const;
+import { useI18n } from "@/lib/i18n";
 
 /**
  * The plans, each with a button that goes to Stripe Checkout. One idempotency
@@ -20,6 +19,7 @@ export function PlanPicker({
   trialAvailable: boolean;
 }) {
   const [key] = useState(() => crypto.randomUUID());
+  const { t } = useI18n();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Set at once, unlike state, so a double click can't start a second checkout before the re-render
@@ -46,7 +46,7 @@ export function PlanPicker({
         {plans.map((price) => (
           <div key={price.plan} className="flex flex-col gap-3 rounded-xl border border-border p-4">
             <div>
-              <div className="text-sm font-semibold">{LABELS[price.plan]}</div>
+              <div className="text-sm font-semibold">{t(price.plan === "monthly" ? "plans.monthly" : "plans.yearly")}</div>
               <div className="text-lg font-semibold">{formatPrice(price)}</div>
             </div>
             <button
@@ -58,15 +58,14 @@ export function PlanPicker({
               {pending === price.plan && (
                 <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               )}
-              {trialAvailable ? `Start ${trialDays}-day free trial` : "Subscribe"}
+              {trialAvailable ? t("plans.startTrial", { days: trialDays }) : t("plans.subscribe")}
             </button>
           </div>
         ))}
       </div>
       {trialAvailable && (
         <p className="text-xs text-muted">
-          Free for {trialDays} days, then the plan you pick. Cancel any time before the trial ends and you won&apos;t be
-          charged.
+          {t("plans.trialTerms", { days: trialDays })}
         </p>
       )}
       {error && (

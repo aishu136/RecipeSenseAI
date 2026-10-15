@@ -33,6 +33,10 @@ public interface RateLimitConfig {
     @WithDefault("10")
     int billing();
 
+    // POST /chat: each message runs the chat model (and maybe a recipe)
+    @WithDefault("20")
+    int chat();
+
     // Everything else, except health checks and Stripe's webhooks
     @WithName("other")
     @WithDefault("120")

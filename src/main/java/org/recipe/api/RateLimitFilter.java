@@ -32,7 +32,7 @@ public class RateLimitFilter {
 
     private static final Logger LOG = Logger.getLogger(RateLimitFilter.class);
 
-    enum Group { RECIPES, MEAL_PLANS, AGENT, BILLING, OTHER }
+    enum Group { RECIPES, MEAL_PLANS, AGENT, BILLING, CHAT, OTHER }
 
     @Inject
     RateLimitConfig config;
@@ -78,7 +78,9 @@ public class RateLimitFilter {
             return Optional.empty();
         }
         if ("POST".equals(method)) {
-            if (path.equals("/recipe/generate") || path.equals("/recipe/stream")) {
+            // Each runs the recipe model
+            if (path.equals("/recipe/generate") || path.equals("/recipe/stream")
+                    || path.equals("/recipe/customize") || path.equals("/recipe/substitutes")) {
                 return Optional.of(Group.RECIPES);
             }
             if (path.equals("/meal-plan")) {
@@ -90,6 +92,9 @@ public class RateLimitFilter {
             if (path.equals("/billing/checkout") || path.equals("/billing/portal") || path.equals("/billing/sync")) {
                 return Optional.of(Group.BILLING);
             }
+            if (path.equals("/chat")) {
+                return Optional.of(Group.CHAT);
+            }
         }
         return Optional.of(Group.OTHER);
     }
@@ -100,6 +105,7 @@ public class RateLimitFilter {
             case MEAL_PLANS -> config.mealPlans();
             case AGENT -> config.agent();
             case BILLING -> config.billing();
+            case CHAT -> config.chat();
             case OTHER -> config.other();
         };
     }

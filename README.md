@@ -20,6 +20,7 @@ Prerequisites: Java 21, Docker, and [Ollama](https://ollama.com) with the chat a
 
 ```shell script
 ollama pull llama3
+ollama pull llama3.1          # the chat assistant: it needs a model that supports tool calling
 ollama pull nomic-embed-text
 ```
 
@@ -102,7 +103,7 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 
 | Endpoint | Body | Notes |
 |---|---|---|
-| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "allergies": [...], "avoid": [...]}` | Returns `{requestId, recipe, healthScore, needsImprovement}`. `cuisine` (e.g. `italian`), `allergies` and `avoid` are optional (see [Dietary restrictions](#dietary-restrictions)) |
+| `POST /recipe/generate` | `{"diet", "ingredients": [...], "servings", "cuisine", "allergies": [...], "avoid": [...], "maxMinutes", "maxCalories", "difficulty", "mealType", "language"}` | Returns `{requestId, recipe, healthScore, needsImprovement}`; `recipe` is JSON with structured ingredients (see [Recipes](#recipes-servings-substitutes-and-languages)). Everything after `servings` is optional (see [Dietary restrictions](#dietary-restrictions)) |
 | `POST /recipe/stream` | same as above | Server-sent events: one event per MCP graph step, then the tool-calling agent's recipe word by word |
 | `POST /autonomous` | plain-text goal, e.g. `plan a healthy vegan dinner` | Planner + executor agents run as a LangGraph4j graph, improves recipes Flink flags (see below) |
 | `POST /autonomous/stream` | same as above | Server-sent events: one event per graph step, then the final result |
@@ -119,6 +120,16 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `POST /billing/portal` | – | `{url}`: Stripe's billing portal, to change plan, update the card or cancel |
 | `POST /billing/sync` | – | Refreshes the subscription from Stripe now; same as `GET /billing/subscription` |
 | `POST /billing/webhook` | Stripe's event | For Stripe only (signed with `Stripe-Signature`) |
+| `POST /recipe/customize` | `{"recipe": "<recipe JSON>", "change": "make it vegan", "language"}` | `{recipe}`: the changed recipe. Counts like a new recipe (free recipes, 401/402); refuses changes that conflict with the user's allergies |
+| `POST /recipe/substitutes` | `{"ingredient", "recipeName", "diet", "language"}` | `{substitutes: [{name, amount, note}]}`, leaving out any that conflict with the user's allergies. Free |
+| `GET /recipes` | query: `q`, `cuisine`, `diet`, `difficulty`, `tag`, `includes`, `excludes`, `maxMinutes`, `maxCalories`, `sort` (`newest`/`quickest`/`calories`/`name`) | The signed-in user's saved recipes, filtered |
+| `POST /recipes` | `{"recipe": "<recipe JSON>", "diet", "cuisine", "language"}` | 201 with the saved recipe; subscribers only (402) |
+| `GET`/`DELETE /recipes/{id}` | – | One saved recipe; deleting also ends its public link |
+| `POST`/`DELETE /recipes/{id}/share` | – | Makes (subscribers only) or ends the recipe's public link; returns the saved recipe with its `shareId` |
+| `GET /shared/{shareId}` | – | A shared recipe, for anyone with the link (without whose it is); 404 once it's not shared |
+| `POST /shopping-list` | `{"recipes": [{"recipeId"} or {"recipe": "<recipe JSON>"}, with "servings"]}` | `{items: [{name, quantity, unit, text, recipes}]}`: the ingredients added up, scaled to each recipe's servings. Saved recipes need signing in |
+| `POST /chat` | `{"conversationId": "<uuid>", "message": "...", "language"}` | `{reply, recipe, shoppingList, needs, needsMessage}`: the chat assistant's answer, a recipe it made or changed (JSON, or null), a shopping list it made, and `needs` (`signIn`/`subscribe`) when something was refused for the user's plan. Guests and signed-in users |
+| `DELETE /chat/{conversationId}` | – | Forgets the conversation |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
 | `GET /q/health` | – | Health checks (see below); also `/q/health/live`, `/q/health/ready` and `/q/health/started` separately |
 
@@ -199,16 +210,41 @@ Users subscribe on Stripe Checkout (`POST /billing/checkout`) and manage their s
 
 Until the key and both prices are set, subscriptions are off: signed-in users get unlimited personalised recipes and meal plans, and only guests have the free-recipe limit. Pay with Stripe's test card `4242 4242 4242 4242` in test mode.
 
+### Recipes: servings, substitutes and languages
+
+Recipes come back as JSON with structured ingredients, `{"quantity": 1.5, "unit": "cup", "name": "rice", "text": "1 1/2 cup rice"}`, plus `servings`, `calories` (per serving), `prepMinutes`, `cookMinutes`, `difficulty` and `tags`. The prompts ask the model for that shape, and `RecipeJson` tidies whatever it writes (ingredients as text like "2 cups rice", numbers as text, code fences) into it, so quantities can be scaled (`RecipeData.withServings`) and added up (`ShoppingList`, which counts kg as g and l as ml, and keeps other units apart). Amounts are rounded the way a cook measures: whole grams and millilitres, one decimal for kilograms and litres, and quarters or thirds of everything else.
+
+- **Advanced options** on `POST /recipe/generate`: `maxMinutes` (prep and cooking), `maxCalories` (per serving), `difficulty` (`easy`, `medium`, `hard`) and `mealType` (`breakfast`, `lunch`, `dinner`, `snack`, `dessert`).
+- **Customising** (`POST /recipe/customize`, `RecipeCustomizer`) rewrites the recipe as asked. The user's saved allergies apply: a change that mentions one is refused (400), and a result that contains one anyway is too (502).
+- **Substitutes** (`POST /recipe/substitutes`) suggests up to 4, dropping any that conflict with the allergies.
+- **Saved recipes** live in Redis (`saved-recipes:{userId}`, at most 500 each). Saving and sharing come with a subscription; what's saved stays the user's to see, filter, delete and stop sharing whatever their plan, and shared links keep working. A shared link is `/shared/{shareId}`, 128 random bits, looked up through `shared-recipe:{shareId}`.
+- **Languages**: `language` (`en`, `es`, `fr`, `hi`; anything else is English) asks the model to write the recipe's name, ingredients and steps in it, keeping the JSON keys and units in English. The chat assistant answers in it too.
+
+### Chat assistant (AWS Bedrock)
+
+Every page has a chat button ("Ask Chef") that opens the site's assistant (`SiteAssistant`), running on AWS Bedrock. It:
+
+- **Makes recipes** from the ingredients people mention, through a tool (`ChatTools.generateRecipe`) that goes the same way as the recipe page: the user's saved allergies are added and checked against the ingredients, subscribers' recipes are personalised with their saved preferences, and everyone else uses up one of their free recipes. Out of free recipes, it says so and the chat shows a button to sign in or see the plans. The recipe appears in the chat as a card.
+- **Changes the recipe** it last made in the conversation (kept in Redis under `chat-recipe:{conversation}`, `LastChatRecipe`): `changeServings` scales it (free), `customizeRecipe` rewrites it ("make it vegan"; counts like a new recipe), `suggestSubstitutes` finds substitutes for an ingredient, `saveRecipe` saves it (subscribers), and `shoppingList` makes a shopping list for it or for saved recipes by name, which the chat shows as a checklist. `findSavedRecipes` searches the user's saved recipes ("anything quick with chicken?").
+- **Answers about the user's plan** (free recipes left, subscription, trial, prices) through another tool (`ChatTools.myPlan`), so it never guesses numbers.
+- **Answers in the site's language**: the request's `language` goes into the system prompt.
+- **Guides people through the site** from a site guide in its system prompt (`src/main/resources/chatbot/system-prompt.txt`), linking to the pages; the chat only turns links to this site's own pages into links.
+
+Each conversation is remembered for a day in Redis (`chat:{user or guest}:{conversationId}`, the last 20 messages, `recipe.chat.max-messages`), and only its owner can use it: the key includes the caller's user id or guest id. Messages are at most 1000 characters, and each caller may send 20 a minute.
+
+The assistant uses its own model configuration, "chatbot": in production that's Bedrock, by default the same model as the rest of the app (`BEDROCK_MODEL_ID`); set `CHATBOT_MODEL_ID` to use another, e.g. a faster, cheaper Claude Haiku. The model has to support tool calling through Bedrock's Converse API (Anthropic Claude 3 and later, Amazon Nova, Mistral Large and others do), and the app's AWS role needs `bedrock:InvokeModel` on it, with access to the model enabled in the Bedrock console. In dev mode it runs on Ollama (`CHATBOT_OLLAMA_MODEL`, default `llama3.1`, which supports tools; plain `llama3` doesn't).
+
 ### Rate limits
 
 Each caller (the signed-in user, else the guest id, else the IP address) may make this many requests per minute, counted in Redis so the limits hold across instances; past it they get 429 with a `Retry-After` header. If Redis is down, requests are let through (the free-recipe and subscription checks still fail closed).
 
 | Endpoints | Per minute | Setting |
 |---|---|---|
-| `POST /recipe/generate`, `/recipe/stream` | 10 | `recipe.rate-limit.recipes` |
+| `POST /recipe/generate`, `/recipe/stream`, `/recipe/customize`, `/recipe/substitutes` | 10 | `recipe.rate-limit.recipes` |
 | `POST /meal-plan` | 10 | `recipe.rate-limit.meal-plans` |
 | `POST /autonomous`, `/autonomous/stream` | 5 | `recipe.rate-limit.agent` |
 | `POST /billing/checkout`, `/portal`, `/sync` | 10 | `recipe.rate-limit.billing` |
+| `POST /chat` | 20 | `recipe.rate-limit.chat` |
 | Everything else, except `/q/...` and `/billing/webhook` | 120 | `recipe.rate-limit.other` |
 
 The window is `recipe.rate-limit.window` (60s); `recipe.rate-limit.enabled=false` turns them off.
@@ -311,6 +347,8 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `STRIPE_WEBHOOK_SECRET` | – | Signing secret of the Stripe webhook endpoint, `whsec_...` |
 | `STRIPE_PRICE_MONTHLY` / `STRIPE_PRICE_YEARLY` | – | Stripe price ids of the plans, `price_...` |
 | `APP_URL` | `http://localhost:3000` | The frontend, where Stripe sends users back after checkout and the billing portal |
+| `CHATBOT_MODEL_ID` | `BEDROCK_MODEL_ID` | Bedrock model of the chat assistant; must support tool calling |
+| `CHATBOT_OLLAMA_MODEL` | `llama3.1` | The chat assistant's model in dev mode |
 | `SPOONACULAR_API_KEY` | none | Spoonacular recipe API key for meal plans ([free tier](https://spoonacular.com/food-api/console#Dashboard)); without it `/meal-plan` returns 503 |
 
 Camel send retries (`application.properties`):

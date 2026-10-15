@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PlanPicker } from "@/components/PlanPicker";
 import { getJson, type Plans, type SubscriptionView } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import { closeSignInDialog, useUpgradeDialog } from "@/lib/signInDialog";
 
 type Offer = { plans: Plans; trialAvailable: boolean } | { error: string };
@@ -10,6 +11,7 @@ type Offer = { plans: Plans; trialAvailable: boolean } | { error: string };
 // The popup asking a signed-in user to subscribe, e.g. after their free recipes
 export function UpgradeDialog() {
   const message = useUpgradeDialog();
+  const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
 
@@ -43,18 +45,18 @@ export function UpgradeDialog() {
       className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-border bg-surface p-6 text-foreground shadow-xl backdrop:bg-black/40"
     >
       <h2 id="upgrade-title" className="text-lg font-semibold">
-        Unlock unlimited recipes
+        {t("dialog.upgradeTitle")}
       </h2>
       <p className="mt-2 text-sm text-muted">{message}</p>
       <div className="mt-5">
-        {offer === null && <p className="text-sm text-muted">Loading plans…</p>}
+        {offer === null && <p className="text-sm text-muted">{t("plans.loading")}</p>}
         {offer && "error" in offer && (
           <p role="alert" className="text-sm text-danger">
             {offer.error}
           </p>
         )}
         {offer && "plans" in offer && !offer.plans.available && (
-          <p className="text-sm text-muted">Subscriptions aren&apos;t available yet.</p>
+          <p className="text-sm text-muted">{t("plans.unavailable")}</p>
         )}
         {offer && "plans" in offer && offer.plans.available && (
           <PlanPicker
@@ -70,7 +72,7 @@ export function UpgradeDialog() {
           onClick={closeSignInDialog}
           className="rounded-lg px-4 py-2 text-sm font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
         >
-          Not now
+          {t("dialog.notNow")}
         </button>
       </div>
     </dialog>

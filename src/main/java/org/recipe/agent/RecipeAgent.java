@@ -39,13 +39,18 @@ public interface RecipeAgent {
 
         {{preferences}}
 
+        {{options}}
+
         Use this background knowledge where it helps:
         {{context}}
 
         Ensure:
         - Include ingredients and instructions
         - Use tools for calories and enrichment
+        - Return JSON with "recipeName", "servings", "ingredients" (each {"quantity": number or null,
+          "unit": "g", "ml", "cup", "tbsp", "tsp"... or null, "name": ""}), "instructions",
+          "calories" (per serving), "prepMinutes", "cookMinutes", "difficulty" (easy, medium or hard) and "tags"
         """)
     String run(String diet, String cuisine, String ingredients, int servings, String restrictions,
-            String preferences, String context);
+            String preferences, String options, String context);
 }

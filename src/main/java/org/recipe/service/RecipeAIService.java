@@ -4,6 +4,7 @@ package org.recipe.service;
 import java.util.List;
 
 import org.recipe.agent.RecipeAgentOrchestrator;
+import org.recipe.cooking.RecipeJson;
 import org.recipe.memory.UserProfileIndex;
 import org.recipe.model.RecipeRequest;
 
@@ -25,6 +26,7 @@ public class RecipeAIService {
     // How many of the user's free-text preferences a prompt gets
     static final int PREFERENCES_PER_PROMPT = 3;
 
+    // The recipe as JSON with structured ingredients (see RecipeJson)
     public String generateRecipe(RecipeRequest request) {
 
         String ingredients =
@@ -34,14 +36,16 @@ public class RecipeAIService {
                 orchestrator.processRecipeRequest(
                         request.toPrompt(), request.restrictions().all());
 
-        return recipeAi.generateRecipe(
+        String recipe = recipeAi.generateRecipe(
                 request.getDiet(),
                 request.cuisineOrAny(),
                 ingredients,
                 request.getServings(),
                 request.restrictions().describe(),
                 preferencesFor(profiles, request),
+                request.optionsPrompt(),
                 context);
+        return RecipeJson.normalize(recipe, request.getServings());
     }
 
     // For prompts: the user's most relevant preferences when the recipe is
