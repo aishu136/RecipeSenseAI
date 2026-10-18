@@ -43,6 +43,8 @@ class RecipeRouteTest extends CamelTestSupport {
     @Override
     protected RoutesBuilder createRouteBuilder() {
         RecipeRoute route = new RecipeRoute();
+        route.requestsUri = "kafka:recipe-requests";
+        route.responsesUri = "kafka:recipe-responses?groupId=camel-group";
         route.deadLetterUri = "mock:dead";
         route.deadLetterFallbackUri = "file:" + fallbackDir.toString().replace('\\', '/');
         route.maxRedeliveries = MAX_REDELIVERIES;

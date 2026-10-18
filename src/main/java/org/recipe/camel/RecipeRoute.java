@@ -26,6 +26,13 @@ public class RecipeRoute extends RouteBuilder {
     /** Exchange property set when a message was dead-lettered after exhausting its retries. */
     public static final String DEAD_LETTERED = "recipeDeadLettered";
 
+    // Kafka by default; local mode (no Kafka) uses in-memory queues instead
+    @ConfigProperty(name = "recipe.camel.requests-uri", defaultValue = "kafka:recipe-requests")
+    String requestsUri;
+
+    @ConfigProperty(name = "recipe.camel.responses-uri", defaultValue = "kafka:recipe-responses?groupId=camel-group")
+    String responsesUri;
+
     @ConfigProperty(name = "recipe.camel.dead-letter-uri", defaultValue = "kafka:recipe-requests-dlq")
     String deadLetterUri;
 
@@ -62,7 +69,7 @@ public class RecipeRoute extends RouteBuilder {
         from("direct:recipe-request")
             .routeId(SEND_ROUTE)
             .log("📥 Received recipe request: ${body}")
-            .to("kafka:recipe-requests");
+            .to(requestsUri);
 
         // ☠️ Dead letters: the dead-letter topic first, a local file if that fails too.
         // No error handler here, so a failure can't loop back into the dead-letter channel.
@@ -81,7 +88,7 @@ public class RecipeRoute extends RouteBuilder {
             .end();
 
         // 🔥 Kafka → API response
-        from("kafka:recipe-responses?groupId=camel-group")
+        from(responsesUri)
             .routeId(RESPONSES_ROUTE)
             .log("📤 Received processed response: ${body}")
             .to("seda:response");

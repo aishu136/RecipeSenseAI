@@ -171,6 +171,30 @@
 			<artifactId>quarkus-redis-client</artifactId>
 		</dependency>
 
+		<!-- Local mode without Docker (the "local" profile): Redis and MongoDB
+		     servers started by the app, and an in-memory stand-in for the Kafka
+		     connector. The MongoDB one also backs the store tests. -->
+		<dependency>
+			<groupId>com.github.fppt</groupId>
+			<artifactId>jedis-mock</artifactId>
+			<version>1.1.19</version>
+		</dependency>
+		<dependency>
+			<groupId>de.flapdoodle.embed</groupId>
+			<artifactId>de.flapdoodle.embed.mongo</artifactId>
+			<version>4.20.0</version>
+		</dependency>
+		<dependency>
+			<groupId>io.smallrye.reactive</groupId>
+			<artifactId>smallrye-reactive-messaging-in-memory</artifactId>
+		</dependency>
+
+		<!-- MongoDB: lasting data (restrictions, subscriptions, saved recipes) -->
+		<dependency>
+			<groupId>io.quarkus</groupId>
+			<artifactId>quarkus-mongodb-client</artifactId>
+		</dependency>
+
 		<!-- OpenSearch -->
 		<dependency>
 			<groupId>org.opensearch.client</groupId>

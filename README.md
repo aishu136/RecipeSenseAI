@@ -6,6 +6,14 @@ AI recipe generator built with Quarkus. It generates recipes with an LLM (Ollama
 POST /recipe/generate ─► LLM ─► Kafka: recipe-requests ─► Flink (RecipeFlinkJob) ─► Kafka: recipe-responses ─► response
 ```
 
+## Where data lives
+
+| Store | What it holds |
+|---|---|
+| MongoDB | Lasting data: users' saved dietary restrictions, subscriptions and saved recipes |
+| Redis | Cache and short-lived data that expires by itself: rate limits, free-recipe counts, chat conversations, Stripe webhook and checkout state |
+| OpenSearch | For the LLM: vector memory, users' free-text preferences, and a searchable copy of their restrictions |
+
 ## Project layout
 
 | Path | What it is |
@@ -34,14 +42,15 @@ docker run -d --name kafka -p 9092:9092 apache/kafka:3.9.0
 
 Topics are created automatically on first use. Next time, just `docker start kafka`.
 
-**Optional: start Redis and OpenSearch** for saved dietary profiles (see [Dietary profiles](#dietary-profiles))
+**Optional: start MongoDB, Redis and OpenSearch** for saved dietary profiles, subscriptions and saved recipes (see [Dietary profiles](#dietary-profiles))
 
 ```shell script
+docker run -d --name mongo -p 27017:27017 mongo:7.0
 docker run -d --name redis -p 6379:6379 redis:7.4
 docker run -d --name opensearch -p 9200:9200 -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true opensearchproject/opensearch:2.11.0
 ```
 
-Without Redis, recipe and meal plan requests fail with 503 rather than ignore the user's saved allergies (or lose count of a guest's free recipes). Without OpenSearch, recipes are made without the user's free-text preferences.
+Without MongoDB, signed-in users' recipe and meal plan requests fail with 503 rather than ignore their saved allergies; without Redis, they fail rather than lose count of free recipes. Without OpenSearch, recipes are made without the user's free-text preferences.
 
 **2. Start the Flink scoring job** (keep it running)
 
@@ -99,6 +108,27 @@ Its end-to-end tests (Playwright) are described in [frontend/README.md](frontend
 
 Open <http://localhost:3000>. It has pages for generating a recipe (with its health score, or streamed step by step), meal plans, the autonomous agent, and your dietary profile (after signing in). The Next.js server forwards `/api/*` to the Quarkus app, so the backend needs no CORS setup; set `BACKEND_URL` (default `http://localhost:8080`, see `frontend/.env.example`) if it runs elsewhere. Sign in (as `alice` or `bob` in dev mode) to use it: recipes you generate personalise your meal plans.
 
+### Without Docker (local mode)
+
+With only Java and Ollama, the `local` profile runs everything else inside the app:
+
+```shell script
+./mvnw quarkus:dev -Dquarkus.profile=dev,local
+OIDC_ISSUER=http://localhost:8080/local/oidc OIDC_CLIENT_SECRET=secret npm run dev   # in frontend/
+```
+
+- **MongoDB** is started by the app on port 27018 (`recipe.local.mongo-port`). The first start downloads it (about 70 MB, into `~/.embedmongo`). Saved restrictions, recipes and subscriptions are lost when the app stops.
+- **Redis** runs in the app on port 6380 (`recipe.local.redis-port`); its counts and chats are lost when it stops.
+- **Kafka** is replaced by in-memory channels, so there's no Flink scoring: recipes come back straight away with `healthScore: null`, and users' Flink preferences are empty.
+- **Signing in** uses Quarkus's in-app OIDC server instead of Keycloak. Its sign-in page has buttons for `alice` and `bob`; for tokens with curl, any password works. The server takes a new port each start, so the frontend finds it through `http://localhost:8080/local/oidc`, and curl gets its token endpoint the same way:
+
+  ```shell script
+  TOKEN_URL=$(curl -sL http://localhost:8080/local/oidc/.well-known/openid-configuration | tr -d '\n ' | sed 's/.*"token_endpoint":"\([^"]*\)".*/\1/')
+  TOKEN=$(curl -s "$TOKEN_URL" -d grant_type=password -d client_id=recipetool -d client_secret=secret \
+    -d username=alice -d password=alice | tr -d '\n ' | sed 's/.*"access_token":"\([^"]*\)".*/\1/')
+  ```
+- **OpenSearch** is left out, as when it isn't running: recipes are made without users' free-text preferences.
+
 ## API
 
 | Endpoint | Body | Notes |
@@ -110,7 +140,7 @@ Open <http://localhost:3000>. It has pages for generating a recipe (with its hea
 | `GET /recipe/free-recipes` | – | `{limit, remaining}`: the caller's free recipes (as a guest, or signed in without a subscription); both `null` with a subscription (unlimited) |
 | `POST /meal-plan` | `{"diet", "cuisine", "ingredients": [...], "allergies": [...], "avoid": [...], "days"}` | Day-by-day plan of real recipes from [Spoonacular](https://spoonacular.com/food-api) (see below). All fields optional; `days` defaults to 3, max 14 |
 | `GET /me` | – | `{userId}`: the signed-in user's id, i.e. their access token's principal. Needs a token |
-| `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (Redis); `PUT` replaces them, empty lists clear them |
+| `GET`/`PUT /users/{userId}/restrictions` | `{"allergies": [...], "avoid": [...]}` | The user's saved restrictions (MongoDB); `PUT` replaces them, empty lists clear them |
 | `GET`/`POST /users/{userId}/preferences` | `{"text": "..."}` | The user's free-text preferences (OpenSearch), at most 500 characters each; `POST` returns `{id, text}` |
 | `DELETE /users/{userId}/preferences/{id}` | – | Deletes one preference |
 | `GET /users/{userId}/similar?limit=10` | – | `{users, shared: [{restriction, type, users}]}`: how many of the (up to `limit`, 1–20) users with the most similar saved restrictions there are, and the restrictions (`type` `allergy` or `avoid`) at least two of them share. It never names them or shows one user's restrictions |
@@ -144,10 +174,10 @@ Errors come back with a plain-text body saying what went wrong, e.g. a 400 with 
 | Endpoint | Checks |
 |---|---|
 | `/q/health/live` | The app is running |
-| `/q/health/ready` | Redis is reachable |
+| `/q/health/ready` | MongoDB and Redis are reachable |
 | `/q/health/started` | The app has started |
 
-Only Redis decides readiness, because without it no recipe or meal plan can be made: they need the user's saved allergies, or the guest's free-recipe count. Kafka is left out of all three checks (`mp.messaging.connector.smallrye-kafka.health-enabled=false`), since the app works without it: recipes come back unscored after `recipe.flink.timeout`, and sends that fail go to the dead-letter file. Otherwise an unreachable Kafka would make every instance unready, and its startup check would never pass, so Kubernetes would keep restarting the app. The Kafka connector can only leave out readiness or every check, so a Kafka channel that fails doesn't show in liveness either; watch the logs or Kafka's own metrics for that. OpenSearch, Ollama/Bedrock and Spoonacular have no checks either, for the same reason.
+Only MongoDB and Redis decide readiness, because without them no recipe or meal plan can be made: they need the user's saved allergies (MongoDB), or the free-recipe count (Redis). Kafka is left out of all three checks (`mp.messaging.connector.smallrye-kafka.health-enabled=false`), since the app works without it: recipes come back unscored after `recipe.flink.timeout`, and sends that fail go to the dead-letter file. Otherwise an unreachable Kafka would make every instance unready, and its startup check would never pass, so Kubernetes would keep restarting the app. The Kafka connector can only leave out readiness or every check, so a Kafka channel that fails doesn't show in liveness either; watch the logs or Kafka's own metrics for that. OpenSearch, Ollama/Bedrock and Spoonacular have no checks either, for the same reason.
 
 ### Dietary restrictions
 
@@ -162,7 +192,7 @@ A request whose `ingredients` include a restricted one (`"peanut butter"` with a
 
 A user's profile (the frontend's Profile page, or `/users/{userId}/...`) holds:
 
-- **Restrictions**, saved in Redis under `dietary-restrictions:{userId}`. Every recipe and meal plan request the user makes adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. Redis is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
+- **Restrictions**, saved in MongoDB's `dietary_restrictions` collection (a document per user). Every recipe and meal plan request the user makes adds them to its own `allergies` and `avoid`, and they're checked against the ingredients the same way. MongoDB is the source of truth: if it can't be read, the request fails with 503 rather than go out without the user's allergies.
 - **Free-text preferences**, e.g. "low sugar, I love spicy food", embedded into OpenSearch (index `user-dietary-profiles`). For each recipe request, the user's three preferences closest to it go into the LLM prompt. They're soft guidance, so if OpenSearch is down the recipe is made without them.
 - **A copy of the restrictions** in the same index, embedded as a sentence ("Allergic to peanut. Avoids pork."), so `/users/{userId}/similar` can find users with similar restrictions by k-NN search. It only reports how many there are and the restrictions at least two of them share, since restrictions are health data: users never see who the others are or any one person's allergies. It's rewritten on every save; if that write fails, the save still succeeds and similarity results stay stale until the next one.
 
@@ -187,7 +217,7 @@ Recipes are free up to a point, then need a subscription, through [Stripe](https
 - **Trial:** 7 days (`stripe.trial-days`), once per user. Checkout takes a card, so the trial turns into the monthly or yearly plan the user picked unless they cancel before it ends; after the trial, checkout starts the plan straight away.
 - **Plans:** a monthly and a yearly recurring price in Stripe; their prices are shown from Stripe.
 
-Users subscribe on Stripe Checkout (`POST /billing/checkout`) and manage their subscription (change plan, update the card, cancel) in Stripe's billing portal (`POST /billing/portal`). Stripe tells the backend about every change through webhooks (`POST /billing/webhook`): each one's `Stripe-Signature` is checked against `STRIPE_WEBHOOK_SECRET`, and the subscription is saved in Redis. A subscription counts while it's `trialing`, `active` or `past_due` (Stripe is retrying a failed payment); `canceled`, `unpaid` and the others don't.
+Users subscribe on Stripe Checkout (`POST /billing/checkout`) and manage their subscription (change plan, update the card, cancel) in Stripe's billing portal (`POST /billing/portal`). Stripe tells the backend about every change through webhooks (`POST /billing/webhook`): each one's `Stripe-Signature` is checked against `STRIPE_WEBHOOK_SECRET`, and the subscription is saved in MongoDB. A subscription counts while it's `trialing`, `active` or `past_due` (Stripe is retrying a failed payment); `canceled`, `unpaid` and the others don't.
 
 **No duplicate charges:**
 
@@ -199,7 +229,7 @@ Users subscribe on Stripe Checkout (`POST /billing/checkout`) and manage their s
 - Events can arrive out of order: each saved subscription keeps the time of the event it came from, and an older event never overwrites it.
 - The frontend disables the plan buttons as soon as one is clicked.
 
-**Caching:** checking a subscription never calls Stripe. Redis holds each user's subscription, kept current by the webhooks, and each instance caches it in memory for 10 seconds (`quarkus.cache.caffeine.subscriptions`) so busy users don't hit Redis on every request; webhooks clear the cache on the instance that receives them. Stripe's prices are cached for an hour (`quarkus.cache.caffeine.stripe-prices`). Back from checkout, the frontend calls `POST /billing/sync` so the new subscription shows even before its webhook arrives.
+**Caching:** checking a subscription never calls Stripe. MongoDB holds each user's subscription (with their Stripe customer and whether they've had the trial, in `billing_users`), kept current by the webhooks, and each instance caches it in memory for 10 seconds (`quarkus.cache.caffeine.subscriptions`) so busy users don't hit MongoDB on every request; webhooks clear the cache on the instance that receives them. Stripe's prices are cached for an hour (`quarkus.cache.caffeine.stripe-prices`). Back from checkout, the frontend calls `POST /billing/sync` so the new subscription shows even before its webhook arrives.
 
 **Setting it up** (Stripe's test mode needs no real money):
 
@@ -217,7 +247,7 @@ Recipes come back as JSON with structured ingredients, `{"quantity": 1.5, "unit"
 - **Advanced options** on `POST /recipe/generate`: `maxMinutes` (prep and cooking), `maxCalories` (per serving), `difficulty` (`easy`, `medium`, `hard`) and `mealType` (`breakfast`, `lunch`, `dinner`, `snack`, `dessert`).
 - **Customising** (`POST /recipe/customize`, `RecipeCustomizer`) rewrites the recipe as asked. The user's saved allergies apply: a change that mentions one is refused (400), and a result that contains one anyway is too (502).
 - **Substitutes** (`POST /recipe/substitutes`) suggests up to 4, dropping any that conflict with the allergies.
-- **Saved recipes** live in Redis (`saved-recipes:{userId}`, at most 500 each). Saving and sharing come with a subscription; what's saved stays the user's to see, filter, delete and stop sharing whatever their plan, and shared links keep working. A shared link is `/shared/{shareId}`, 128 random bits, looked up through `shared-recipe:{shareId}`.
+- **Saved recipes** live in MongoDB (`saved_recipes`, a document per recipe, at most 500 per user). Saving and sharing come with a subscription; what's saved stays the user's to see, filter, delete and stop sharing whatever their plan, and shared links keep working. A shared link is `/shared/{shareId}`, 128 random bits, kept on the recipe's document; deleting the recipe ends the link.
 - **Languages**: `language` (`en`, `es`, `fr`, `hi`; anything else is English) asks the model to write the recipe's name, ingredients and steps in it, keeping the JSON keys and units in English. The chat assistant answers in it too.
 
 ### Chat assistant (AWS Bedrock)
@@ -340,7 +370,9 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `AWS_REGION` | `us-east-1` | Bedrock region |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama in dev mode |
 | `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Users' free-text preferences and a searchable copy of their restrictions |
-| `REDIS_URL` | `redis://localhost:6379` | Users' saved dietary restrictions |
+| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB: saved dietary restrictions, subscriptions and saved recipes |
+| `MONGODB_DATABASE` | `recipetool` | The MongoDB database |
+| `REDIS_URL` | `redis://localhost:6379` | Redis: rate limits, free-recipe counts, chats, and Stripe webhook and checkout state |
 | `OIDC_AUTH_SERVER_URL` | – (dev mode starts Keycloak) | OIDC provider for the profile endpoints, e.g. `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AbCdEf` or `https://keycloak.example.com/realms/recipetool`. Required by the packaged app |
 | `OIDC_CLIENT_ID` | `recipetool` | The OIDC client the tokens are issued to |
 | `STRIPE_SECRET_KEY` | – (subscriptions off) | Stripe secret key, `sk_test_...` or `sk_live_...` |

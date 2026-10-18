@@ -5,10 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
@@ -18,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.recipe.TestMongo;
 import org.recipe.billing.SubscriptionStore.CheckoutLink;
 
 import io.quarkus.redis.datasource.keys.KeyCommands;
@@ -27,9 +25,6 @@ import jakarta.ws.rs.WebApplicationException;
 
 @ExtendWith(MockitoExtension.class)
 class SubscriptionStoreTest {
-
-    @Mock
-    ValueCommands<String, UserSubscription> subscriptions;
 
     @Mock
     ValueCommands<String, CheckoutLink> checkouts;
@@ -45,7 +40,7 @@ class SubscriptionStoreTest {
     @BeforeEach
     void setUp() {
         store = new SubscriptionStore();
-        store.subscriptions = subscriptions;
+        store.users = TestMongo.collection(SubscriptionStore.COLLECTION);
         store.checkouts = checkouts;
         store.strings = strings;
         store.keys = keys;
@@ -58,21 +53,40 @@ class SubscriptionStoreTest {
 
     @Test
     void savesNewerStateAndRemembersTheTrial() {
-        when(subscriptions.get("subscription:alice")).thenReturn(at(100, "incomplete", null));
+        assertTrue(store.save("alice", at(100, "incomplete", null)));
+        assertFalse(store.trialUsed("alice"));
 
         assertTrue(store.save("alice", at(200, "trialing", 1_800_000_000L)));
 
-        verify(subscriptions).set("subscription:alice", at(200, "trialing", 1_800_000_000L));
-        verify(strings).set("trial-used:alice", "true");
+        assertEquals(Optional.of(at(200, "trialing", 1_800_000_000L)), store.find("alice"));
+        assertTrue(store.trialUsed("alice"));
     }
 
     @Test
     void anOlderEventDeliveredLateDoesntOverwriteNewerState() {
-        when(subscriptions.get("subscription:alice")).thenReturn(at(300, "canceled", null));
+        store.save("alice", at(300, "canceled", null));
 
         assertFalse(store.save("alice", at(200, "active", null)));
 
-        verify(subscriptions, never()).set(anyString(), any());
+        assertEquals(Optional.of(at(300, "canceled", null)), store.find("alice"));
+    }
+
+    @Test
+    void nothingStoredForANewUser() {
+        assertEquals(Optional.empty(), store.find("bob"));
+        assertFalse(store.trialUsed("bob"));
+        assertEquals(Optional.empty(), store.customerOf("bob"));
+    }
+
+    @Test
+    void linksUsersAndCustomersBothWays() {
+        store.link("alice", "cus_1");
+        assertTrue(store.save("alice", at(100, "active", null)));
+
+        assertEquals(Optional.of("cus_1"), store.customerOf("alice"));
+        assertEquals(Optional.of("alice"), store.userOf("cus_1"));
+        assertEquals(Optional.empty(), store.userOf("cus_2"));
+        assertEquals(Optional.of(at(100, "active", null)), store.find("alice"));
     }
 
     @Test
@@ -105,10 +119,19 @@ class SubscriptionStoreTest {
     }
 
     @Test
-    void redisFailuresAre503() {
-        when(subscriptions.get("subscription:alice")).thenThrow(new RuntimeException("connection refused"));
+    void mongoFailuresAre503() {
+        store.users = TestMongo.unreachable(SubscriptionStore.COLLECTION);
 
         assertEquals(503, assertThrows(WebApplicationException.class, () -> store.find("alice"))
+                .getResponse().getStatus());
+    }
+
+    @Test
+    void redisFailuresAre503() {
+        when(strings.setGet(eq("checkout-lock:alice"), eq("locked"), any(SetArgs.class)))
+                .thenThrow(new RuntimeException("connection refused"));
+
+        assertEquals(503, assertThrows(WebApplicationException.class, () -> store.lockCheckout("alice"))
                 .getResponse().getStatus());
     }
 }

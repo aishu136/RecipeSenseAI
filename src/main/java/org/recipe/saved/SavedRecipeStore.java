@@ -1,21 +1,27 @@
 package org.recipe.saved;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.ReplaceOptions;
+import com.mongodb.client.model.Sorts;
 
-import io.quarkus.redis.datasource.RedisDataSource;
-import io.quarkus.redis.datasource.hash.HashCommands;
-import io.quarkus.redis.datasource.keys.KeyCommands;
-import io.quarkus.redis.datasource.value.ValueCommands;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -23,17 +29,17 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 
 /**
- * Users' saved recipes, in Redis: a hash per user, "saved-recipes:{userId}",
- * of recipe id to JSON, and for each shared recipe "shared-recipe:{shareId}"
- * holding "{userId}\n{recipeId}", which the public link looks up.
+ * Users' saved recipes, in MongoDB: a document per recipe in "saved_recipes",
+ * the SavedRecipe's fields plus the owner's userId. A shared recipe's shareId
+ * is on its document, which the public link looks up, so deleting the recipe
+ * also ends its link.
  */
 @ApplicationScoped
 public class SavedRecipeStore {
 
     private static final Logger LOG = Logger.getLogger(SavedRecipeStore.class);
 
-    static final String KEY_PREFIX = "saved-recipes:";
-    static final String SHARE_PREFIX = "shared-recipe:";
+    static final String COLLECTION = "saved_recipes";
 
     // Most recipes one user can keep
     public static final int MAX_RECIPES = 500;
@@ -41,94 +47,89 @@ public class SavedRecipeStore {
     static final ObjectMapper JSON = new ObjectMapper();
 
     @Inject
-    RedisDataSource redis;
+    MongoClient mongo;
 
-    HashCommands<String, String, String> hashes;
-    ValueCommands<String, String> values;
-    KeyCommands<String> keys;
+    @ConfigProperty(name = "quarkus.mongodb.database", defaultValue = "recipetool")
+    String database;
+
+    MongoCollection<Document> recipes;
+    // Created on first use rather than at startup, so a MongoDB outage gives 503s, not a broken bean
+    volatile boolean indexed;
 
     @PostConstruct
     void init() {
-        hashes = redis.hash(String.class);
-        values = redis.value(String.class);
-        keys = redis.key();
+        recipes = mongo.getDatabase(database).getCollection(COLLECTION);
     }
 
     // The user's recipes, newest first
     public List<SavedRecipe> list(String userId) {
-        Map<String, String> all = redis(() -> hashes.hgetall(key(userId)));
-        List<SavedRecipe> recipes = new ArrayList<>();
-        all.values().forEach(json -> read(json).ifPresent(recipes::add));
-        recipes.sort(Comparator.comparingLong(SavedRecipe::savedAt).reversed());
-        return recipes;
+        List<Document> all = mongo(() -> recipes.find(eq("userId", userId))
+                .sort(Sorts.descending("savedAt"))
+                .into(new ArrayList<>()));
+        List<SavedRecipe> list = new ArrayList<>();
+        all.forEach(document -> read(document).ifPresent(list::add));
+        return list;
     }
 
     public Optional<SavedRecipe> find(String userId, String id) {
-        String json = redis(() -> hashes.hget(key(userId), id));
-        return json == null ? Optional.empty() : read(json);
+        return Optional.ofNullable(mongo(() -> recipes.find(recipe(userId, id)).first()))
+                .flatMap(SavedRecipeStore::read);
     }
 
     public int count(String userId) {
-        return (int) (long) redis(() -> hashes.hlen(key(userId)));
+        return (int) (long) mongo(() -> recipes.countDocuments(eq("userId", userId)));
     }
 
     public void save(String userId, SavedRecipe recipe) {
-        String json = write(recipe);
-        redis(() -> hashes.hset(key(userId), recipe.id(), json));
+        Document document = write(recipe).append("userId", userId);
+        mongo(() -> recipes.replaceOne(recipe(userId, recipe.id()), document, new ReplaceOptions().upsert(true)));
     }
 
     // Also ends its public link
     public void delete(String userId, String id) {
-        find(userId, id).ifPresent(recipe -> {
-            if (recipe.shareId() != null) {
-                redis(() -> keys.del(SHARE_PREFIX + recipe.shareId()));
-            }
-            redis(() -> hashes.hdel(key(userId), id));
-        });
+        mongo(() -> recipes.deleteOne(recipe(userId, id)));
     }
 
     public void share(String userId, SavedRecipe recipe, String shareId) {
-        redis(() -> {
-            values.set(SHARE_PREFIX + shareId, userId + "\n" + recipe.id());
-            return null;
-        });
         save(userId, recipe.withShareId(shareId));
     }
 
     public void unshare(String userId, SavedRecipe recipe) {
-        if (recipe.shareId() == null) {
-            return;
+        if (recipe.shareId() != null) {
+            save(userId, recipe.withShareId(null));
         }
-        redis(() -> keys.del(SHARE_PREFIX + recipe.shareId()));
-        save(userId, recipe.withShareId(null));
     }
 
     // The recipe a public link shows, while it's shared
     public Optional<SavedRecipe> findShared(String shareId) {
-        String owner = redis(() -> values.get(SHARE_PREFIX + shareId));
-        if (owner == null || owner.indexOf('\n') < 0) {
-            return Optional.empty();
+        return Optional.ofNullable(mongo(() -> recipes.find(eq("shareId", shareId)).first()))
+                .flatMap(SavedRecipeStore::read);
+    }
+
+    private static Bson recipe(String userId, String id) {
+        return and(eq("userId", userId), eq("id", id));
+    }
+
+    private void indexes() {
+        if (!indexed) {
+            recipes.createIndex(Indexes.ascending("userId", "id"), new IndexOptions().unique(true));
+            recipes.createIndex(Indexes.ascending("shareId"), new IndexOptions().sparse(true));
+            indexed = true;
         }
-        String userId = owner.substring(0, owner.indexOf('\n'));
-        String id = owner.substring(owner.indexOf('\n') + 1);
-        return find(userId, id).filter(recipe -> shareId.equals(recipe.shareId()));
     }
 
-    static String key(String userId) {
-        return KEY_PREFIX + userId;
-    }
-
-    static String write(SavedRecipe recipe) {
+    static Document write(SavedRecipe recipe) {
         try {
-            return JSON.writeValueAsString(recipe);
+            return Document.parse(JSON.writeValueAsString(recipe));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Could not write a saved recipe as JSON", e);
         }
     }
 
-    private static Optional<SavedRecipe> read(String json) {
+    // Skips the _id and userId fields: SavedRecipe ignores unknown properties
+    static Optional<SavedRecipe> read(Document document) {
         try {
-            return Optional.of(JSON.readValue(json, SavedRecipe.class));
+            return Optional.of(JSON.readValue(document.toJson(), SavedRecipe.class));
         } catch (JsonProcessingException e) {
             LOG.warnf("Skipping a saved recipe that can't be read: %s", e.getMessage());
             return Optional.empty();
@@ -136,13 +137,14 @@ public class SavedRecipeStore {
     }
 
     /**
-     * @throws WebApplicationException (HTTP 503) when Redis fails
+     * @throws WebApplicationException (HTTP 503) when MongoDB fails
      */
-    private static <T> T redis(Supplier<T> call) {
+    private <T> T mongo(Supplier<T> call) {
         try {
+            indexes();
             return call.get();
         } catch (RuntimeException e) {
-            LOG.warnf("Saved recipes: Redis failed: %s", e.getMessage());
+            LOG.warnf("Saved recipes: MongoDB failed: %s", e.getMessage());
             throw new WebApplicationException("Saved recipes can't be reached right now. Try again in a moment.",
                     e, Response.Status.SERVICE_UNAVAILABLE);
         }
