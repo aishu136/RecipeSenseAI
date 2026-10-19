@@ -140,6 +140,11 @@ public class SubscriptionStore {
         return available(() -> user(userId).map(user -> user.getBoolean("trialUsed", false)).orElse(false));
     }
 
+    public void markTrialUsed(String userId) {
+        available(() -> users.updateOne(eq("_id", userId), Updates.set("trialUsed", true),
+                new UpdateOptions().upsert(true)));
+    }
+
     public Optional<String> customerOf(String userId) {
         return available(() -> user(userId).map(user -> user.getString("customerId")));
     }

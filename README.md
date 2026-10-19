@@ -14,6 +14,8 @@ POST /recipe/generate ─► LLM ─► Kafka: recipe-requests ─► Flink (Rec
 | Redis | Cache and short-lived data that expires by itself: rate limits, free-recipe counts, chat conversations, Stripe webhook and checkout state |
 | OpenSearch | For the LLM: vector memory, users' free-text preferences, and a searchable copy of their restrictions |
 
+**Moving from Redis-only storage:** before MongoDB, restrictions, subscriptions and saved recipes were kept in Redis. To copy them over, deploy once with `MIGRATE_REDIS_TO_MONGO=true` (and `MONGODB_URI` set), check the startup log for the line `Copied from Redis to MongoDB: ...`, then remove the setting. It only fills in what MongoDB doesn't have (a subscription is copied only if newer than the stored one) and leaves Redis untouched, so it's safe to run more than once or on several instances at once. Shared recipe links keep working. Once you're happy, the old keys (`dietary-restrictions:*`, `subscription:*`, `stripe-customer:*`, `stripe-user:*`, `trial-used:*`, `saved-recipes:*`, `shared-recipe:*`) can be deleted from Redis.
+
 ## Project layout
 
 | Path | What it is |
@@ -372,6 +374,7 @@ Set through environment variables (defaults in `src/main/resources/application.p
 | `OPENSEARCH_HOST` / `OPENSEARCH_PORT` | `localhost` / `9200` | Users' free-text preferences and a searchable copy of their restrictions |
 | `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB: saved dietary restrictions, subscriptions and saved recipes |
 | `MONGODB_DATABASE` | `recipetool` | The MongoDB database |
+| `MIGRATE_REDIS_TO_MONGO` | `false` | Copy data kept in Redis before MongoDB into MongoDB at startup (see [Where data lives](#where-data-lives)) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis: rate limits, free-recipe counts, chats, and Stripe webhook and checkout state |
 | `OIDC_AUTH_SERVER_URL` | – (dev mode starts Keycloak) | OIDC provider for the profile endpoints, e.g. `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AbCdEf` or `https://keycloak.example.com/realms/recipetool`. Required by the packaged app |
 | `OIDC_CLIENT_ID` | `recipetool` | The OIDC client the tokens are issued to |
