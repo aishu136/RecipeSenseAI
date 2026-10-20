@@ -1,11 +1,27 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Translate } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/messages";
 import { Button, Card, ErrorBox, Field, Input, PageHeader } from "@/components/ui";
-import { ApiError, postJson, splitList, type Meal, type MealPlan, type MealPlanRequest } from "@/lib/api";
+import {
+  ApiError,
+  MEALS,
+  getJson,
+  postJson,
+  putJson,
+  splitList,
+  userPath,
+  type Meal,
+  type MealPlan,
+  type MealPlanRequest,
+  type WeekPlan,
+  type WeekSlot,
+} from "@/lib/api";
+import { addAllToCart } from "@/lib/shoppingCart";
 import { askToSignIn } from "@/lib/signInDialog";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -13,8 +29,36 @@ import {
   isUnauthorized,
   needSignIn,
   needSubscription,
+  signedOut,
   useCurrentUser,
 } from "@/lib/useCurrentUser";
+import { addDays, mondayOf, today, weekday } from "@/lib/week";
+
+// Only web links go into the planner, which links to them
+const webLink = (url: string | null) => (url && /^https?:\/\//i.test(url) ? url : null);
+
+/**
+ * The plan's meals in the weekly planner, its first day today, by week:
+ * each week's plan from the backend, with the plan's meals in their slots.
+ */
+async function addToWeeks(userId: string, plan: MealPlan) {
+  const byWeek = new Map<string, WeekSlot[]>();
+  plan.days.forEach((day, i) => {
+    const date = addDays(today(), i);
+    const slots = byWeek.get(mondayOf(date)) ?? [];
+    for (const meal of MEALS) {
+      const { id, title, url, image } = day[meal];
+      slots.push({ day: weekday(date), meal, spoonacularId: id, title: title.slice(0, 200), url: webLink(url), image: webLink(image) });
+    }
+    byWeek.set(mondayOf(date), slots);
+  });
+  for (const [monday, slots] of byWeek) {
+    const path = userPath(userId, `week/${monday}`);
+    const { slots: planned } = await getJson<WeekPlan>(path);
+    const kept = planned.filter((p) => !slots.some((s) => s.day === p.day && s.meal === p.meal));
+    await putJson(path, { slots: [...kept, ...slots] });
+  }
+}
 
 // Friendlier messages for the errors POST /meal-plan documents
 const ERRORS: Record<number, MessageKey> = {
@@ -36,6 +80,34 @@ export default function MealPlanPage() {
   const [plan, setPlan] = useState<MealPlan | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [addingToWeek, setAddingToWeek] = useState(false);
+  const [addedToWeek, setAddedToWeek] = useState(false);
+
+  function shop() {
+    if (!plan) return;
+    addAllToCart(
+      plan.days.flatMap((day) =>
+        MEALS.map((meal) => ({ name: day[meal].title, spoonacularId: day[meal].id, servings: null })),
+      ),
+    );
+    router.push("/shopping-list");
+  }
+
+  async function addToWeek() {
+    if (!plan || user.status !== "signedIn") return;
+    setAddingToWeek(true);
+    setError(null);
+    try {
+      await addToWeeks(user.userId, plan);
+      setAddedToWeek(true);
+    } catch (err) {
+      if (isUnauthorized(err)) signedOut();
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingToWeek(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +125,7 @@ export default function MealPlanPage() {
     };
     setLoading(true);
     setError(null);
+    setAddedToWeek(false);
     try {
       setPlan(await postJson<MealPlan>("/meal-plan", request));
     } catch (err) {
@@ -100,6 +173,31 @@ export default function MealPlanPage() {
       {plan && (
         <div className="flex flex-col gap-6">
           {plan.personalisedWith && <Personalisation with={plan.personalisedWith} t={t} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={shop}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+            >
+              🛒 {t("mealPlan.shop")}
+            </button>
+            <button
+              type="button"
+              onClick={addToWeek}
+              disabled={addingToWeek}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-surface-2 disabled:opacity-50"
+            >
+              📅 {addingToWeek ? t("common.working") : t("mealPlan.addToWeek")}
+            </button>
+            {addedToWeek && (
+              <span className="text-sm text-muted" role="status">
+                {t("mealPlan.addedToWeek")}{" "}
+                <Link href="/week" className="font-medium text-accent hover:underline">
+                  {t("mealPlan.openWeek")}
+                </Link>
+              </span>
+            )}
+          </div>
           {plan.days.map((day) => (
             <section key={day.day}>
               <h2 className="mb-3 text-lg font-semibold">{t("mealPlan.day", { day: day.day })}</h2>

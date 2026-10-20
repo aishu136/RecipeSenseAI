@@ -14,6 +14,7 @@ const LINKS: { href: string; label: MessageKey }[] = [
   { href: "/recipes", label: "nav.recipes" },
   { href: "/shopping-list", label: "nav.shopping" },
   { href: "/meal-plan", label: "nav.mealPlan" },
+  { href: "/week", label: "nav.week" },
   { href: "/autonomous", label: "nav.agent" },
   { href: "/profile", label: "nav.profile" },
   { href: "/billing", label: "nav.plan" },

@@ -113,12 +113,6 @@ public class UserProfileResource {
      * @throws ForbiddenException (HTTP 403) unless userId is the caller's own
      */
     private String requireUserId(String userId) {
-        if (userId == null || userId.isBlank()) {
-            throw new BadRequestException("userId is required");
-        }
-        if (!userId.trim().equals(identity.getPrincipal().getName())) {
-            throw new ForbiddenException("You can only access your own profile");
-        }
-        return userId.trim();
+        return OwnUser.require(identity, userId);
     }
 }

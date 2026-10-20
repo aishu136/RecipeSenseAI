@@ -267,6 +267,27 @@ export type Substitute = { name: string; amount: string; note: string };
 
 // POST /shopping-list; quantity is null for e.g. salt, where the recipes don't say how much
 export type ShoppingItem = { name: string; quantity: number | null; unit: string | null; text: string; recipes: string[] };
+// POST /shopping-list; atHome has the texts of the items the user has at home
+export type ShoppingListResponse = { items: ShoppingItem[]; atHome: string[] };
+
+// What the user has at home, under /users/{userId}/pantry
+export type Pantry = { items: string[] };
+
+// The weekly planner, under /users/{userId}/week/{monday}: a saved recipe
+// (recipeId) or a meal plan's recipe (spoonacularId) for each meal
+export const MEALS = ["breakfast", "lunch", "dinner"] as const;
+export type MealName = (typeof MEALS)[number];
+export type WeekSlot = {
+  // 0 for Monday to 6 for Sunday
+  day: number;
+  meal: MealName;
+  recipeId?: string | null;
+  spoonacularId?: number | null;
+  title: string;
+  url?: string | null;
+  image?: string | null;
+};
+export type WeekPlan = { week: string; slots: WeekSlot[] };
 
 // GET /recipes; savedAt is epoch seconds, shareId is set while it has a public link
 export type SavedRecipe = {

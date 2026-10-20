@@ -10,8 +10,8 @@ POST /recipe/generate ─► LLM ─► Kafka: recipe-requests ─► Flink (Rec
 
 | Store | What it holds |
 |---|---|
-| MongoDB | Lasting data: users' saved dietary restrictions, subscriptions and saved recipes |
-| Redis | Cache and short-lived data that expires by itself: rate limits, free-recipe counts, chat conversations, Stripe webhook and checkout state |
+| MongoDB | Lasting data: users' saved dietary restrictions, subscriptions, saved recipes, what they have at home, and their weekly planners |
+| Redis | Cache and short-lived data that expires by itself: rate limits, free-recipe counts, chat conversations, Stripe webhook and checkout state, meal plan recipes' ingredients from Spoonacular (an hour) |
 | OpenSearch | For the LLM: vector memory, users' free-text preferences, and a searchable copy of their restrictions |
 
 **Moving from Redis-only storage:** before MongoDB, restrictions, subscriptions and saved recipes were kept in Redis. To copy them over, deploy once with `MIGRATE_REDIS_TO_MONGO=true` (and `MONGODB_URI` set), check the startup log for the line `Copied from Redis to MongoDB: ...`, then remove the setting. It only fills in what MongoDB doesn't have (a subscription is copied only if newer than the stored one) and leaves Redis untouched, so it's safe to run more than once or on several instances at once. Shared recipe links keep working. Once you're happy, the old keys (`dietary-restrictions:*`, `subscription:*`, `stripe-customer:*`, `stripe-user:*`, `trial-used:*`, `saved-recipes:*`, `shared-recipe:*`) can be deleted from Redis.
@@ -159,7 +159,9 @@ OIDC_ISSUER=http://localhost:8080/local/oidc OIDC_CLIENT_SECRET=secret npm run d
 | `GET`/`DELETE /recipes/{id}` | – | One saved recipe; deleting also ends its public link |
 | `POST`/`DELETE /recipes/{id}/share` | – | Makes (subscribers only) or ends the recipe's public link; returns the saved recipe with its `shareId` |
 | `GET /shared/{shareId}` | – | A shared recipe, for anyone with the link (without whose it is); 404 once it's not shared |
-| `POST /shopping-list` | `{"recipes": [{"recipeId"} or {"recipe": "<recipe JSON>"}, with "servings"]}` | `{items: [{name, quantity, unit, text, recipes}]}`: the ingredients added up, scaled to each recipe's servings. Saved recipes need signing in |
+| `POST /shopping-list` | `{"recipes": [{"recipeId"} or {"spoonacularId"} or {"recipe": "<recipe JSON>"}, with "servings"]}` | `{items: [{name, quantity, unit, text, recipes}], atHome: [text]}`: the ingredients added up, scaled to each recipe's servings, and which of them the user has at home. At most 50 recipes. Saved recipes need signing in; a meal plan's recipes (`spoonacularId`) a subscription (see [Shopping, what's at home and the weekly planner](#shopping-whats-at-home-and-the-weekly-planner)) |
+| `GET`/`PUT /users/{userId}/pantry` | `{"items": [...]}` | What the user has at home; `PUT` replaces it (at most 300 items) |
+| `GET`/`PUT /users/{userId}/week/{monday}` | `{"slots": [{"day", "meal", "recipeId" or "spoonacularId", "title", "url", "image"}]}` | The user's weekly planner for the week starting `monday` (YYYY-MM-DD): `day` 0 (Monday) to 6, `meal` `breakfast`/`lunch`/`dinner`, one recipe per meal. `PUT` replaces the week |
 | `POST /chat` | `{"conversationId": "<uuid>", "message": "...", "language"}` | `{reply, recipe, shoppingList, needs, needsMessage}`: the chat assistant's answer, a recipe it made or changed (JSON, or null), a shopping list it made, and `needs` (`signIn`/`subscribe`) when something was refused for the user's plan. Guests and signed-in users |
 | `DELETE /chat/{conversationId}` | – | Forgets the conversation |
 | `POST /mcp` | `{"tool": "...", "input": "..."}` | Tools: `recipe-search`, `nutrition`, `allergy-check`, `calories`, `meal-planner`, `ingredient-substitution` |
@@ -332,6 +334,13 @@ START ─► search ─┬─► nutrition ─┬─► combine ─► END
 ```
 
 `recipe-search` uses the Bedrock knowledge base; without AWS credentials it returns nothing (a warning is logged) and generation carries on.
+
+### Shopping, what's at home and the weekly planner
+
+- **Shopping lists** add up any recipes: the one on screen, saved ones, and a meal plan's. A meal plan's recipes only have a title and a link, so their ingredients come from Spoonacular's [recipe information](https://spoonacular.com/food-api/docs#Get-Recipe-Information-Bulk), in metric units so they add up with the app's own recipes, all of a list's in one request (`SpoonacularRecipes`). They're cached in Redis (`spoonacular-recipe:{id}`) for an hour, as long as Spoonacular's terms allow, so a list made again doesn't use the daily quota again; when Redis is down they're fetched every time. Like meal plans, they need a subscription.
+- **What's at home** (`pantries` in MongoDB) is left out of what to buy: the list's `atHome` names those items, matched by ingredient ("Onions" at home is the "2 onions" a recipe needs). On the Shopping list page, "I have it" adds an item, and "Need to buy" takes it off again. If what's at home can't be read, the list still comes back, with nothing marked.
+- **Buying online**: each item to buy links to Amazon (amazon.in) and Flipkart grocery searches for it. Neither has an API for adding to a shopper's cart or ordering for them, so the link opens the store's search in a new tab, where the user adds it to their cart and pays. The stores are in `frontend/src/lib/stores.ts`.
+- **The weekly planner** (`week_plans` in MongoDB, a document per user and week) holds a recipe for each breakfast, lunch and dinner: saved recipes, picked on the Weekly planner page, or a meal plan's, added from the Meal plan page ("Add to my week" fills the days from today on, across weeks, replacing what was planned for those meals). "Shopping list for this week" puts all of the week's recipes on the shopping list, leaving out saved recipes deleted since.
 
 ### Meal plans
 

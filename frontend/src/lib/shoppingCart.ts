@@ -4,14 +4,15 @@ import { useSyncExternalStore } from "react";
 
 /**
  * The recipes on the shopping list, kept in this browser: ones from the
- * screen as their JSON, saved ones by id. The backend adds them up
- * (POST /shopping-list).
+ * screen as their JSON, saved ones by id, and meal plans' by their recipe
+ * API id. The backend adds them up (POST /shopping-list).
  */
 export type CartEntry = {
   key: string;
   name: string;
   recipe?: string;
   recipeId?: string;
+  spoonacularId?: number;
   // null for as many as the recipe serves
   servings: number | null;
 };
@@ -47,6 +48,11 @@ function set(next: CartEntry[]) {
 
 export function addToCart(entry: Omit<CartEntry, "key">) {
   set([...current(), { ...entry, key: crypto.randomUUID() }]);
+}
+
+// Several at once, e.g. a meal plan's recipes
+export function addAllToCart(entries: Omit<CartEntry, "key">[]) {
+  set([...current(), ...entries.map((entry) => ({ ...entry, key: crypto.randomUUID() }))]);
 }
 
 export function updateCart(key: string, servings: number | null) {

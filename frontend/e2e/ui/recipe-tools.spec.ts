@@ -203,6 +203,7 @@ test.describe("recipe card", () => {
     const lists: { recipes: { recipe?: string; servings: number | null }[] }[] = [];
     await generate(page, {
       ...signedInAs("alice"),
+      "GET /users/alice/pantry": (route) => json(route, { items: [] }),
       "POST /shopping-list": (route) => {
         const body = route.request().postDataJSON();
         lists.push(body);
@@ -212,6 +213,7 @@ test.describe("recipe card", () => {
             { name: "rice", quantity: servings / 2, unit: "cup", text: `${servings / 2} cup rice`, recipes: ["Tomato Rice"] },
             { name: "salt", quantity: null, unit: null, text: "salt", recipes: ["Tomato Rice"] },
           ],
+          atHome: [],
         });
       },
     });
@@ -222,9 +224,9 @@ test.describe("recipe card", () => {
 
     const list = page.getByRole("list", { name: "To buy" });
     await expect(list.getByText("1 cup rice")).toBeVisible();
-    await list.getByLabel(/salt/).check();
+    await list.getByRole("checkbox", { name: /salt/ }).check();
     await page.reload();
-    await expect(page.getByRole("list", { name: "To buy" }).getByLabel(/salt/)).toBeChecked();
+    await expect(page.getByRole("list", { name: "To buy" }).getByRole("checkbox", { name: /salt/ })).toBeChecked();
 
     await page.getByLabel("Servings").fill("4");
     await expect(page.getByRole("list", { name: "To buy" }).getByText("2 cup rice")).toBeVisible();

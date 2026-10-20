@@ -41,6 +41,31 @@ public interface SpoonacularClient {
             @QueryParam("excludeIngredients") String excludeIngredients,
             @QueryParam("apiKey") String apiKey);
 
+    /**
+     * Recipes' details, with their ingredients.
+     *
+     * @param ids comma-separated recipe ids
+     */
+    @GET
+    @Path("/informationBulk")
+    List<RecipeInformation> informationBulk(
+            @QueryParam("ids") String ids,
+            @QueryParam("includeNutrition") boolean includeNutrition,
+            @QueryParam("apiKey") String apiKey);
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RecipeInformation(int id, String title, Integer servings, List<ExtendedIngredient> extendedIngredients) { }
+
+    // An ingredient, measured in US units (amount and unit) and metric ones
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ExtendedIngredient(String name, Double amount, String unit, Measures measures) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Measures(Measure metric) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Measure(Double amount, String unitShort) { }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SearchResponse(List<Recipe> results, int totalResults) { }
 

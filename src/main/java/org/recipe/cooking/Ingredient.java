@@ -24,8 +24,9 @@ public record Ingredient(Double quantity, String unit, String name) {
     static final Map<String, String> UNITS = Map.ofEntries(
             Map.entry("cup", "cup"), Map.entry("cups", "cup"),
             Map.entry("tbsp", "tbsp"), Map.entry("tbs", "tbsp"), Map.entry("tablespoon", "tbsp"),
-            Map.entry("tablespoons", "tbsp"),
+            Map.entry("tablespoons", "tbsp"), Map.entry("tbsps", "tbsp"),
             Map.entry("tsp", "tsp"), Map.entry("teaspoon", "tsp"), Map.entry("teaspoons", "tsp"),
+            Map.entry("tsps", "tsp"),
             Map.entry("g", "g"), Map.entry("gram", "g"), Map.entry("grams", "g"),
             Map.entry("kg", "kg"), Map.entry("kilogram", "kg"), Map.entry("kilograms", "kg"),
             Map.entry("ml", "ml"), Map.entry("millilitre", "ml"), Map.entry("milliliter", "ml"),

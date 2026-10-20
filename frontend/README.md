@@ -12,9 +12,10 @@ npm run build && npm start   # production
 |---|---|
 | `/` Recipe | `POST /recipe/generate`, or `POST /recipe/stream` with "Stream live progress"; advanced options (time, calories, difficulty, meal) |
 | `/recipes` My recipes | `GET /recipes` with filters; open one to cook, change, share or delete it |
-| `/shopping-list` | `POST /shopping-list` for the recipes on the list (kept in `localStorage`) |
+| `/shopping-list` | `POST /shopping-list` for the recipes on the list (kept in `localStorage`), with Amazon and Flipkart links for what to buy; `GET`/`PUT /users/{userId}/pantry` for what's at home |
 | `/shared/{shareId}` | `GET /shared/{shareId}`: a shared recipe, for anyone with the link |
-| `/meal-plan` | `POST /meal-plan` |
+| `/meal-plan` | `POST /meal-plan`; its recipes go on the shopping list, or into the weekly planner |
+| `/week` | `GET`/`PUT /users/{userId}/week/{monday}`, with saved recipes (`GET /recipes`) to plan |
 | `/autonomous` Agent | `POST /autonomous/stream` |
 | `/profile` | `GET /me`, `/users/{userId}/restrictions`, `/preferences` and `/similar` (signed in) |
 | `/billing` Plan | `GET /billing/plans` and `/billing/subscription`, `POST /billing/checkout` and `/billing/portal` |
